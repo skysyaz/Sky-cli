@@ -21,7 +21,7 @@ export const MODEL_SUGGESTIONS = [
 ];
 
 /** The providers a user can switch to via `/provider`. */
-export const PROVIDER_NAMES = ['openai', 'anthropic', 'ollama', 'ollama-cloud', 'openrouter', 'zenmux', 'mock'];
+export const PROVIDER_NAMES = ['openai', 'anthropic', 'ollama', 'ollama-cloud', 'openrouter', 'zenmux', 'opencode', 'mock'];
 
 export const SLASH_COMMANDS: SlashCommand[] = [
   { name: 'help', description: 'Show keybindings and commands' },
