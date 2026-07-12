@@ -11,7 +11,7 @@ it to.
 
 - **Local-first & user-sovereign** — your code stays on your machine.
 - **Consent by default** — every file write, shell command, and push requires approval.
-- **Multi-provider** — OpenAI, Anthropic, Ollama, and OpenRouter behind one interface.
+- **Multi-provider** — OpenAI, Anthropic, Ollama (local), Ollama Cloud, OpenRouter, and ZenMux behind one interface.
 - **Auditable** — every approval decision is written to an append-only audit log.
 - **Modular to the bone** — typed modules with enforced boundaries (see the [spec](./Sky_CLI_Agent_Technical_Specification.pdf)).
 
@@ -98,7 +98,7 @@ cli/ ─► agent/ ─► llm/  tools/  safety/  session/
 | `logging/`  | Structured JSON logging with secret redaction             |
 | `config/`   | Zod-validated config, precedence merging, secret resolution |
 | `session/`  | Atomic, versioned session persistence + index             |
-| `llm/`      | `Provider` interface + OpenAI/Anthropic/Ollama/OpenRouter/mock adapters |
+| `llm/`      | `Provider` interface + OpenAI/Anthropic/Ollama/Ollama-Cloud/OpenRouter/ZenMux/mock adapters |
 | `safety/`   | Policy engine, shell classification, diffs, audit log     |
 | `tools/`    | `read` `write` `edit` `search` `shell` `git` + registry   |
 | `agent/`    | The orchestration loop (a generator yielding typed events) |

@@ -21,7 +21,9 @@ const PROVIDER_DEFAULTS: Record<string, { apiKeyEnv: string; model: string }> = 
   openai: { apiKeyEnv: 'OPENAI_API_KEY', model: 'gpt-4o' },
   anthropic: { apiKeyEnv: 'ANTHROPIC_API_KEY', model: 'claude-3-5-sonnet' },
   ollama: { apiKeyEnv: '', model: 'llama3.1' },
+  'ollama-cloud': { apiKeyEnv: 'OLLAMA_API_KEY', model: 'gpt-oss:120b' },
   openrouter: { apiKeyEnv: 'OPENROUTER_API_KEY', model: 'openai/gpt-4o' },
+  zenmux: { apiKeyEnv: 'ZENMUX_API_KEY', model: 'openai/gpt-4o' },
   mock: { apiKeyEnv: '', model: 'mock-1' },
 };
 
@@ -141,7 +143,9 @@ export async function initCommand(global: GlobalOptions): Promise<number> {
   let provider = global.provider ?? 'openai';
   if (interactive) {
     const rl = createInterface({ input: process.stdin, output: process.stdout });
-    const p = (await rl.question('Provider [openai/anthropic/ollama/openrouter/mock] (openai): ')).trim();
+    const p = (
+      await rl.question('Provider [openai/anthropic/ollama/ollama-cloud/openrouter/zenmux/mock] (openai): ')
+    ).trim();
     rl.close();
     if (p && PROVIDER_DEFAULTS[p]) provider = p;
   }

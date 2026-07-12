@@ -18,6 +18,8 @@ export function resolveApiKey(
   logger?: Logger,
   env: NodeJS.ProcessEnv = process.env,
 ): string {
+  // Only the mock provider and a *local* Ollama server need no key.
+  // `ollama-cloud` and `zenmux` are hosted and require an API key.
   if (providerName === 'mock' || providerName === 'ollama') return '';
 
   if (providerConfig?.apiKey) {
@@ -33,7 +35,10 @@ export function resolveApiKey(
     if (fromEnv) return fromEnv;
   }
 
-  const conventional = env[`SKY_PROVIDERS_${providerName.toUpperCase()}_API_KEY`];
+  // Normalize non-alphanumeric characters (e.g. the hyphen in `ollama-cloud`)
+  // to underscores so the conventional env-var name is valid.
+  const envName = providerName.toUpperCase().replace(/[^A-Z0-9]/g, '_');
+  const conventional = env[`SKY_PROVIDERS_${envName}_API_KEY`];
   if (conventional) return conventional;
 
   throw new SkyError(ErrorCode.NoApiKey, { name: providerName });

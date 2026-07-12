@@ -6,7 +6,15 @@ import { z } from 'zod';
  * defined here are precedence level 1 — the lowest — in the merge order of §7.6.
  */
 
-export const providerNameSchema = z.enum(['openai', 'anthropic', 'ollama', 'openrouter', 'mock']);
+export const providerNameSchema = z.enum([
+  'openai',
+  'anthropic',
+  'ollama',
+  'ollama-cloud',
+  'openrouter',
+  'zenmux',
+  'mock',
+]);
 export type ProviderName = z.infer<typeof providerNameSchema>;
 
 const modelMetaSchema = z.object({

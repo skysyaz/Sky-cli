@@ -16,7 +16,9 @@ export interface CreateProviderOptions {
 }
 
 const OLLAMA_DEFAULT_BASE_URL = 'http://localhost:11434/v1';
+const OLLAMA_CLOUD_BASE_URL = 'https://ollama.com/v1';
 const OPENROUTER_BASE_URL = 'https://openrouter.ai/api/v1';
+const ZENMUX_BASE_URL = 'https://zenmux.ai/api/v1';
 
 /**
  * Instantiate the provider adapter named in config (§8.2). The four first-class
@@ -45,12 +47,28 @@ export function createProvider(options: CreateProviderOptions): Provider {
       });
 
     case 'ollama':
-      // Reuses the OpenAI adapter against Ollama's compatible endpoint (§8.5).
+      // Reuses the OpenAI adapter against a *local* Ollama server (§8.5).
       return new OpenAiAdapter({
         apiKey: '',
         baseUrl: providerConfig?.baseUrl ?? OLLAMA_DEFAULT_BASE_URL,
         includeUsage: false, // Ollama does not support stream_options.include_usage
         name: 'ollama',
+      });
+
+    case 'ollama-cloud':
+      // Ollama's hosted service (ollama.com) — OpenAI-compatible, key required.
+      return new OpenAiAdapter({
+        apiKey: resolveApiKey('ollama-cloud', providerConfig, logger, env),
+        baseUrl: providerConfig?.baseUrl ?? OLLAMA_CLOUD_BASE_URL,
+        name: 'ollama-cloud',
+      });
+
+    case 'zenmux':
+      // ZenMux AI gateway — OpenAI-compatible, key required.
+      return new OpenAiAdapter({
+        apiKey: resolveApiKey('zenmux', providerConfig, logger, env),
+        baseUrl: providerConfig?.baseUrl ?? ZENMUX_BASE_URL,
+        name: 'zenmux',
       });
 
     case 'openrouter':

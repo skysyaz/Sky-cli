@@ -51,7 +51,10 @@ function build(): Command {
     .description('Sky — a command-line AI agent with an interactive TUI and multi-provider LLM support.')
     .version(VERSION, '-V, --version', 'print version and exit')
     .option('-m, --model <model>', 'override the model for this run')
-    .option('-p, --provider <provider>', 'override the LLM provider')
+    .option(
+      '-p, --provider <provider>',
+      'override the LLM provider (openai, anthropic, ollama, ollama-cloud, openrouter, zenmux, mock)',
+    )
     .option('--yolo', 'auto-approve every tool call (CI only); implies --force')
     .option('--force', 'skip interactive confirmations but respect the denylist')
     .option('--cwd <path>', 'run as if started in this directory')
