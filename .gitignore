@@ -1,1 +1,7 @@
-Nothing should be ignored since only source code files (.ts files) are being modified and there are no build artifacts, dependencies, or temporary files in the changes.
+node_modules/
+coverage/
+dist/
+*.log
+.env
+.env.*
+.DS_Store

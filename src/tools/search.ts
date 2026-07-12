@@ -4,7 +4,7 @@ import { z } from 'zod';
 import { execa } from 'execa';
 import { ErrorCode } from '../errors/index.js';
 import type { Tool, ToolContext, ToolResult } from './types.js';
-import { resolveInCwd, isInsideCwd } from './paths.js';
+import { resolveInCwd } from './paths.js';
 
 const schema = z.object({
   pattern: z.string(),
@@ -123,22 +123,23 @@ export const searchTool: Tool<Input> = {
       if (input.glob) args.push('--glob', input.glob);
       if (input.maxResults) args.push('--max-count', String(input.maxResults));
       args.push(input.pattern, searchRoot);
-      const { stdout } = await execa('rg', args, { cwd: ctx.cwd, reject: false });
-      matches = stdout
-        .split('\n')
-        .filter(Boolean)
-        .slice(0, input.maxResults ?? 200)
-        .map((line) => {
-          const m = line.match(/^(.*?):(\d+):(.*)$/);
-          if (!m) return undefined;
-          return { file: relative(ctx.cwd, m[1]) || m[1], line: Number(m[2]), text: m[3].trim().slice(0, 200) };
-        })
-        .filter((x): x is Match => x !== undefined);
-    } catch {
-      // ripgrep not installed → JS fallback.
-      if (!isInsideCwd(ctx.cwd, searchRoot) && !this.requiresApproval(input)) {
-        // defensive: keep behaviour consistent
+      // reject:false so exit 1 (no matches) doesn't throw; fall back on missing rg / errors.
+      const result = await execa('rg', args, { cwd: ctx.cwd, reject: false });
+      if (result.exitCode !== 0 && result.exitCode !== 1) {
+        matches = jsSearch(searchRoot, input, ctx.cwd);
+      } else {
+        matches = result.stdout
+          .split('\n')
+          .filter(Boolean)
+          .slice(0, input.maxResults ?? 200)
+          .map((line) => {
+            const m = line.match(/^(.*?):(\d+):(.*)$/);
+            if (!m) return undefined;
+            return { file: relative(ctx.cwd, m[1]) || m[1], line: Number(m[2]), text: m[3].trim().slice(0, 200) };
+          })
+          .filter((x): x is Match => x !== undefined);
       }
+    } catch {
       matches = jsSearch(searchRoot, input, ctx.cwd);
     }
 
