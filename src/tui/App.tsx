@@ -1,0 +1,471 @@
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { Box, Text, Static, useApp, useInput } from 'ink';
+import type { SkyConfig } from '../config/index.js';
+import type { Logger } from '../logging/index.js';
+import type { Session, Mode } from '../session/types.js';
+import type { SessionStore } from '../session/store.js';
+import type { Provider } from '../llm/types.js';
+import type { ToolRegistry } from '../tools/index.js';
+import { Policy } from '../safety/policy.js';
+import { AuditLog } from '../safety/audit.js';
+import { Approver, type Prompter, type ApprovalAnswer, type ApprovalPromptRequest } from '../safety/approver.js';
+import { AgentLoop } from '../agent/loop.js';
+import {
+  getSuggestions,
+  parseInput,
+  SLASH_COMMANDS,
+  MODEL_SUGGESTIONS,
+  type Suggestion,
+} from './commands.js';
+
+export interface AppProps {
+  provider: Provider;
+  registry: ToolRegistry;
+  session: Session;
+  store: SessionStore;
+  config: SkyConfig;
+  logger: Logger;
+  force?: boolean;
+  yolo?: boolean;
+  initialPrompt?: string;
+}
+
+type LogKind = 'user' | 'assistant' | 'tool' | 'tool-result' | 'system' | 'error';
+interface LogItem {
+  id: number;
+  kind: LogKind;
+  text: string;
+  ok?: boolean;
+}
+
+const GLYPH = '⬢';
+const MODE_COLOR: Record<Mode, string> = { agent: 'cyan', plan: 'magenta', ask: 'green' };
+
+export function App(props: AppProps): React.ReactElement {
+  const { exit } = useApp();
+  const { provider, registry, session, store, config } = props;
+
+  const [log, setLog] = useState<LogItem[]>([]);
+  const [streaming, setStreaming] = useState('');
+  const [input, setInput] = useState('');
+  const [selected, setSelected] = useState(0);
+  const [busy, setBusy] = useState(false);
+  const [mode, setMode] = useState<Mode>(session.mode);
+  const [model, setModel] = useState(session.model);
+  const [tokenUsed, setTokenUsed] = useState(session.tokenUsage.input + session.tokenUsage.output);
+  const [filesEdited, setFilesEdited] = useState(0);
+  const [approval, setApproval] = useState<{ request: ApprovalPromptRequest; resolve: (a: ApprovalAnswer) => void } | null>(null);
+
+  const idRef = useRef(0);
+  const abortRef = useRef<AbortController | null>(null);
+  const policyRef = useRef(new Policy(config, session.sessionAllowlist));
+  const auditRef = useRef(new AuditLog({ logger: props.logger }));
+
+  const tokenLimit = useMemo(() => provider.tokenLimits(model).contextWindow, [provider, model]);
+  const modelSuggestions = useMemo(() => [model, ...MODEL_SUGGESTIONS.filter((m) => m !== model)], [model]);
+  const suggestions = busy || approval ? [] : getSuggestions(input, { modelSuggestions });
+  const paletteOpen = suggestions.length > 0;
+  const clampedSelected = suggestions.length ? Math.min(selected, suggestions.length - 1) : 0;
+
+  const pushLog = (kind: LogKind, text: string, ok?: boolean): void => {
+    setLog((prev) => [...prev, { id: idRef.current++, kind, text, ok }]);
+  };
+
+  // The interactive approval prompter: shows the modal and resolves on keypress.
+  const prompter: Prompter = (request) =>
+    new Promise<ApprovalAnswer>((resolve) => setApproval({ request, resolve }));
+
+  async function runAgent(prompt: string): Promise<void> {
+    setBusy(true);
+    const abort = new AbortController();
+    abortRef.current = abort;
+    const approver = new Approver({
+      policy: policyRef.current,
+      audit: auditRef.current,
+      prompter,
+      logger: props.logger,
+      force: props.force,
+      yolo: props.yolo,
+    });
+    const loop = new AgentLoop({
+      provider,
+      registry,
+      approver,
+      policy: policyRef.current,
+      session,
+      store,
+      config,
+      logger: props.logger,
+      signal: abort.signal,
+    });
+
+    let streamed = '';
+    try {
+      for await (const event of loop.run(prompt)) {
+        switch (event.type) {
+          case 'text-delta':
+            streamed += event.text;
+            setStreaming(streamed);
+            break;
+          case 'tool-call':
+            pushLog('tool', `${GLYPH} ${event.toolCall.name} ${summarize(event.toolCall.input)}`);
+            break;
+          case 'tool-result':
+            pushLog('tool-result', firstLine(event.output), event.ok);
+            if (event.ok && (event.toolName === 'write' || event.toolName === 'edit')) {
+              setFilesEdited((n) => n + 1);
+            }
+            break;
+          case 'usage':
+            setTokenUsed(session.tokenUsage.input + session.tokenUsage.output);
+            break;
+          case 'turn-end':
+            if (streamed.trim()) pushLog('assistant', streamed.trim());
+            streamed = '';
+            setStreaming('');
+            break;
+          case 'error':
+            if (streamed.trim()) {
+              pushLog('assistant', streamed.trim());
+              streamed = '';
+              setStreaming('');
+            }
+            pushLog('error', event.error.toUserMessage());
+            break;
+          default:
+            break;
+        }
+      }
+    } finally {
+      setBusy(false);
+      abortRef.current = null;
+    }
+  }
+
+  function executeSlash(name: string, arg?: string): void {
+    switch (name) {
+      case 'help':
+        pushLog(
+          'system',
+          [
+            'Commands: /help /mode /model /cost /diff /compact /clear /exit',
+            'Type / to open the palette · ↑/↓ to move · Tab/Enter to select · Esc to clear',
+            'Enter submits · Ctrl+C cancels a turn (twice to quit) · Ctrl+D quits',
+          ].join('\n'),
+        );
+        break;
+      case 'clear':
+        setLog([]);
+        break;
+      case 'exit':
+        store.setStatus(session, 'paused');
+        exit();
+        break;
+      case 'mode':
+        if (arg === 'agent' || arg === 'plan' || arg === 'ask') {
+          session.mode = arg;
+          store.save(session);
+          setMode(arg);
+          pushLog('system', `Mode → ${arg}`);
+        } else {
+          pushLog('system', 'Usage: /mode [agent|plan|ask]');
+        }
+        break;
+      case 'model':
+        if (arg) {
+          session.model = arg;
+          store.save(session);
+          setModel(arg);
+          pushLog('system', `Model → ${arg}`);
+        } else {
+          pushLog('system', 'Usage: /model <name>');
+        }
+        break;
+      case 'cost':
+        pushLog(
+          'system',
+          `Tokens: ${session.tokenUsage.input} in / ${session.tokenUsage.output} out · ~$${session.tokenUsage.estimatedCostUsd.toFixed(4)}`,
+        );
+        break;
+      case 'diff':
+        pushLog('system', `${filesEdited} file(s) edited this session. Run \`git diff\` to review.`);
+        break;
+      case 'compact':
+        pushLog('system', 'Compaction runs automatically past the threshold; manual /compact is a no-op here.');
+        break;
+      default:
+        pushLog('error', `Unknown command: /${name}`);
+        break;
+    }
+  }
+
+  function acceptSuggestion(suggestion: Suggestion): void {
+    if (suggestion.kind === 'command') {
+      const cmd = SLASH_COMMANDS.find((c) => c.name === suggestion.value);
+      if (cmd?.args) {
+        setInput(`/${suggestion.value} `);
+        setSelected(0);
+      } else {
+        executeSlash(suggestion.value);
+        setInput('');
+      }
+    } else {
+      const parsed = parseInput(input);
+      executeSlash(parsed.command, suggestion.value);
+      setInput('');
+    }
+  }
+
+  function submit(): void {
+    const text = input.trim();
+    if (!text) return;
+    if (text.startsWith('/')) {
+      const parsed = parseInput(text);
+      executeSlash(parsed.command, parsed.hasSpace ? parsed.arg : undefined);
+      setInput('');
+      return;
+    }
+    pushLog('user', text);
+    setInput('');
+    void runAgent(text);
+  }
+
+  useInput((char, key) => {
+    // Approval modal takes priority.
+    if (approval) {
+      const answer = key.return ? 'yes' : char?.toLowerCase();
+      let resolved: ApprovalAnswer | null = null;
+      if (answer === 'y' || key.return) resolved = 'yes';
+      else if (answer === 'n' || key.escape) resolved = 'no';
+      else if (answer === 'a') resolved = 'always';
+      else if (answer === 'e') resolved = 'edit';
+      if (resolved) {
+        approval.resolve(resolved);
+        setApproval(null);
+      }
+      return;
+    }
+
+    if (busy) {
+      if (key.ctrl && char === 'c') abortRef.current?.abort();
+      return;
+    }
+
+    if (key.ctrl && char === 'c') {
+      if (input) setInput('');
+      else {
+        store.setStatus(session, 'paused');
+        exit();
+      }
+      return;
+    }
+    if (key.ctrl && char === 'd') {
+      store.setStatus(session, 'paused');
+      exit();
+      return;
+    }
+
+    if (paletteOpen && key.upArrow) {
+      setSelected((s) => (s - 1 + suggestions.length) % suggestions.length);
+      return;
+    }
+    if (paletteOpen && key.downArrow) {
+      setSelected((s) => (s + 1) % suggestions.length);
+      return;
+    }
+    if (paletteOpen && key.tab) {
+      acceptSuggestion(suggestions[clampedSelected]);
+      return;
+    }
+    if (key.return) {
+      if (paletteOpen) acceptSuggestion(suggestions[clampedSelected]);
+      else submit();
+      return;
+    }
+    if (key.escape) {
+      setInput('');
+      return;
+    }
+    if (key.backspace || key.delete) {
+      setInput((v) => v.slice(0, -1));
+      setSelected(0);
+      return;
+    }
+    if (char && !key.ctrl && !key.meta) {
+      setInput((v) => v + char);
+      setSelected(0);
+    }
+  });
+
+  useEffect(() => {
+    if (props.initialPrompt) {
+      pushLog('user', props.initialPrompt);
+      void runAgent(props.initialPrompt);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const pct = tokenLimit > 0 ? ((tokenUsed / tokenLimit) * 100).toFixed(1) : '0.0';
+
+  return (
+    <Box flexDirection="column">
+      <Static items={log}>{(item) => <LogLine key={item.id} item={item} />}</Static>
+
+      {streaming ? <Text>{streaming}</Text> : null}
+      {busy ? <Text color="yellow">{GLYPH} working… (Ctrl+C to cancel)</Text> : null}
+
+      {approval ? (
+        <ApprovalModal request={approval.request} />
+      ) : (
+        <Box flexDirection="column">
+          {paletteOpen ? <Palette suggestions={suggestions} selected={clampedSelected} /> : null}
+          <InputBox value={input} mode={mode} />
+        </Box>
+      )}
+
+      <StatusBar
+        mode={mode}
+        provider={provider.name}
+        model={model}
+        pct={pct}
+        files={filesEdited}
+        sessionId={session.id}
+      />
+    </Box>
+  );
+}
+
+function LogLine({ item }: { item: LogItem }): React.ReactElement {
+  switch (item.kind) {
+    case 'user':
+      return (
+        <Box marginTop={1}>
+          <Text color="cyan" bold>
+            › {item.text}
+          </Text>
+        </Box>
+      );
+    case 'assistant':
+      return (
+        <Box marginTop={1}>
+          <Text>{item.text}</Text>
+        </Box>
+      );
+    case 'tool':
+      return <Text color="magenta">{item.text}</Text>;
+    case 'tool-result':
+      return <Text color={item.ok ? 'green' : 'red'}>{'  '}{GLYPH} {item.text}</Text>;
+    case 'system':
+      return <Text color="gray">{item.text}</Text>;
+    case 'error':
+      return <Text color="red">{GLYPH} {item.text}</Text>;
+    default:
+      return <Text>{item.text}</Text>;
+  }
+}
+
+function Palette({ suggestions, selected }: { suggestions: Suggestion[]; selected: number }): React.ReactElement {
+  return (
+    <Box flexDirection="column" borderStyle="round" borderColor="gray" paddingX={1}>
+      {suggestions.slice(0, 8).map((s, i) => (
+        <Box key={s.label}>
+          <Text color={i === selected ? 'cyan' : undefined} bold={i === selected}>
+            {i === selected ? '❯ ' : '  '}
+            {s.label.padEnd(20)}
+          </Text>
+          <Text color="gray"> {s.description}</Text>
+        </Box>
+      ))}
+    </Box>
+  );
+}
+
+function InputBox({ value, mode }: { value: string; mode: Mode }): React.ReactElement {
+  return (
+    <Box borderStyle="round" borderColor={MODE_COLOR[mode]} paddingX={1}>
+      <Text color={MODE_COLOR[mode]}>› </Text>
+      {value ? <Text>{value}</Text> : <Text color="gray">Ask, build, or type / for commands</Text>}
+      <Text color="gray">█</Text>
+    </Box>
+  );
+}
+
+function StatusBar({
+  mode,
+  provider,
+  model,
+  pct,
+  files,
+  sessionId,
+}: {
+  mode: Mode;
+  provider: string;
+  model: string;
+  pct: string;
+  files: number;
+  sessionId: string;
+}): React.ReactElement {
+  const pctColor = Number(pct) >= 95 ? 'red' : Number(pct) >= 90 ? 'yellow' : 'green';
+  return (
+    <Box>
+      <Text color={MODE_COLOR[mode]}>
+        {GLYPH} {mode}
+      </Text>
+      <Text color="gray"> · {provider}:{model} · </Text>
+      <Text color={pctColor}>{pct}%</Text>
+      <Text color="gray"> · {files} files · {sessionId.slice(0, 5)}</Text>
+    </Box>
+  );
+}
+
+function ApprovalModal({ request }: { request: ApprovalPromptRequest }): React.ReactElement {
+  const diffLines = request.diff ? request.diff.patch.split('\n').slice(0, 24) : [];
+  return (
+    <Box flexDirection="column" borderStyle="round" borderColor="yellow" paddingX={1}>
+      <Text color="yellow" bold>
+        {GLYPH} Approve {request.toolName}? <Text color="gray">({request.reason})</Text>
+      </Text>
+      {request.diff ? (
+        <Box flexDirection="column" marginTop={1}>
+          {diffLines.map((line, i) => (
+            <Text
+              key={i}
+              color={
+                line.startsWith('+') && !line.startsWith('+++')
+                  ? 'green'
+                  : line.startsWith('-') && !line.startsWith('---')
+                    ? 'red'
+                    : line.startsWith('@@')
+                      ? 'cyan'
+                      : 'gray'
+              }
+            >
+              {line}
+            </Text>
+          ))}
+          <Text color="gray">
+            {request.diff.added} added, {request.diff.removed} removed
+          </Text>
+        </Box>
+      ) : (
+        <Text color="gray">{summarize(request.input)}</Text>
+      )}
+      <Box marginTop={1}>
+        <Text bold>[y]es [n]o [a]lways [e]dit</Text>
+      </Box>
+    </Box>
+  );
+}
+
+function summarize(input: Record<string, unknown>): string {
+  if (typeof input.path === 'string') return input.path;
+  if (typeof input.command === 'string') return input.command.slice(0, 80);
+  if (typeof input.pattern === 'string') return `/${input.pattern}/`;
+  if (typeof input.action === 'string') return String(input.action);
+  return JSON.stringify(input).slice(0, 80);
+}
+
+function firstLine(text: string): string {
+  const line = text.split('\n')[0];
+  return line.length > 100 ? line.slice(0, 99) + '…' : line;
+}

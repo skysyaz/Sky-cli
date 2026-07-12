@@ -59,6 +59,28 @@ export async function runSession(options: RunSessionOptions): Promise<number> {
     return runTurn(options, options.initialPrompt);
   }
 
+  // Interactive: prefer the Cursor-style Ink TUI (slash palette, status bar,
+  // inline diff approvals). It is imported dynamically so headless mode never
+  // loads React/Ink. Fall back to the readline loop if Ink cannot start.
+  try {
+    const { runTui } = await import('../tui/run.js');
+    const provider = makeProvider(runtime, global);
+    await runTui({
+      provider,
+      registry: runtime.registry,
+      session,
+      store: runtime.store,
+      config: runtime.config,
+      logger: runtime.logger,
+      force: global.force,
+      yolo: global.yolo,
+      initialPrompt: options.initialPrompt,
+    });
+    return 0;
+  } catch (error) {
+    runtime.logger.warn('tui.fallback', { detail: (error as Error).message });
+  }
+
   const c = runtime.color ? chalk : ({ gray: (s: string) => s, cyan: (s: string) => s, bold: (s: string) => s } as any);
   process.stdout.write(
     c.bold(`Sky — ${session.mode} mode`) +

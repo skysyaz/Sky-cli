@@ -15,6 +15,10 @@ export default defineConfig({
   clean: true,
   dts: true,
   external: ['openai', '@anthropic-ai/sdk'],
+  // Ink/React JSX is compiled via the automatic runtime.
+  esbuildOptions(options) {
+    options.jsx = 'automatic';
+  },
   banner: {
     js: '#!/usr/bin/env node',
   },

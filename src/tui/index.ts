@@ -1,17 +1,20 @@
 /**
- * The `tui/` module (§2.4.2).
+ * The `tui/` module (§2.4.2). A React application rendered into the terminal via
+ * Ink. Because the agent loop emits a provider-agnostic event stream, the TUI is
+ * fully decoupled from orchestration — the headless renderer consumes the same
+ * events without linking against Ink.
  *
- * The specification calls for an Ink (React) renderer. Because the agent loop
- * emits a provider-agnostic event stream (see {@link AgentEvent}), the
- * presentation layer is fully decoupled from orchestration — exactly the
- * property §2.4.2 relies on so headless mode can reuse the entire agent module
- * without linking against Ink.
- *
- * This build ships a dependency-light, readline-based front-end (see
- * `src/cli/session-runner.ts` and `src/cli/render.ts`) that consumes the same
- * event stream. An Ink `<App />` can be added here later without touching the
- * agent, safety, or tool layers. The two surfaces are re-exported so callers can
- * treat "render an event stream" as the TUI's public interface.
+ * The Ink components (`App`, `runTui`) are imported dynamically by the CLI so
+ * that headless mode never loads React/Ink. The pure command-palette logic lives
+ * in `./commands.ts` and is unit-tested directly.
  */
-export { renderStream, type RenderOptions } from '../cli/render.js';
-export { createInteractivePrompter } from '../cli/prompter.js';
+export {
+  getSuggestions,
+  parseInput,
+  SLASH_COMMANDS,
+  MODEL_SUGGESTIONS,
+  type Suggestion,
+  type SlashCommand,
+  type ParsedInput,
+} from './commands.js';
+export type { RunTuiOptions } from './run.js';
