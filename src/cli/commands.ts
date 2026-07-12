@@ -23,7 +23,7 @@ const PROVIDER_DEFAULTS: Record<string, { apiKeyEnv: string; model: string }> = 
   ollama: { apiKeyEnv: '', model: 'llama3.1' },
   'ollama-cloud': { apiKeyEnv: 'OLLAMA_API_KEY', model: 'gpt-oss:120b' },
   openrouter: { apiKeyEnv: 'OPENROUTER_API_KEY', model: 'openai/gpt-4o' },
-  zenmux: { apiKeyEnv: 'ZENMUX_API_KEY', model: 'openai/gpt-4o' },
+  zenmux: { apiKeyEnv: 'ZENMUX_API_KEY', model: 'x-ai/grok-4.5-free' },
   mock: { apiKeyEnv: '', model: 'mock-1' },
 };
 
