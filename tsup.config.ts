@@ -10,7 +10,10 @@ export default defineConfig({
   format: ['esm'],
   target: 'node20',
   platform: 'node',
-  splitting: false,
+  // Splitting must be on so the dynamically-imported TUI (`import('../tui/run.js')`)
+  // is emitted as a resolvable chunk; otherwise the built binary can't find it
+  // at runtime and silently falls back to the readline UI.
+  splitting: true,
   sourcemap: true,
   clean: true,
   dts: true,

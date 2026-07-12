@@ -10,6 +10,7 @@ import { Policy } from '../safety/policy.js';
 import { AuditLog } from '../safety/audit.js';
 import { Approver, type Prompter, type ApprovalAnswer, type ApprovalPromptRequest } from '../safety/approver.js';
 import { AgentLoop } from '../agent/loop.js';
+import { SkyError } from '../errors/index.js';
 import { PluginManager, runPluginCommand, type LoadedPlugin, type PluginCommand } from '../plugins/index.js';
 import {
   getSuggestions,
@@ -20,7 +21,9 @@ import {
 } from './commands.js';
 
 export interface AppProps {
-  provider: Provider;
+  /** Lazily create the provider so a config error (e.g. missing API key) shows
+   *  as an in-UI error instead of preventing the TUI from mounting. */
+  makeProvider: () => Provider;
   registry: ToolRegistry;
   session: Session;
   store: SessionStore;
@@ -46,7 +49,8 @@ const MODE_COLOR: Record<Mode, string> = { agent: 'cyan', plan: 'magenta', ask: 
 
 export function App(props: AppProps): React.ReactElement {
   const { exit } = useApp();
-  const { provider, registry, session, store, config } = props;
+  const { registry, session, store, config } = props;
+  const [provider, setProvider] = useState<Provider | null>(null);
 
   const [log, setLog] = useState<LogItem[]>([]);
   const [streaming, setStreaming] = useState('');
@@ -75,7 +79,10 @@ export function App(props: AppProps): React.ReactElement {
     [pluginCommands],
   );
 
-  const tokenLimit = useMemo(() => provider.tokenLimits(model).contextWindow, [provider, model]);
+  const tokenLimit = useMemo(
+    () => (provider ? provider.tokenLimits(model).contextWindow : 128_000),
+    [provider, model],
+  );
   const modelSuggestions = useMemo(() => [model, ...MODEL_SUGGESTIONS.filter((m) => m !== model)], [model]);
   const suggestions = busy || approval ? [] : getSuggestions(input, { modelSuggestions, extraCommands });
   const paletteOpen = suggestions.length > 0;
@@ -89,7 +96,23 @@ export function App(props: AppProps): React.ReactElement {
   const prompter: Prompter = (request) =>
     new Promise<ApprovalAnswer>((resolve) => setApproval({ request, resolve }));
 
+  /** Create the provider on demand; on failure, show the error in-UI (no crash). */
+  function ensureProvider(): Provider | null {
+    if (provider) return provider;
+    try {
+      const created = props.makeProvider();
+      setProvider(created);
+      return created;
+    } catch (error) {
+      const skyError = SkyError.from(error);
+      pushLog('error', `${skyError.toUserMessage()} — fix the config or use /model, then try again.`);
+      return null;
+    }
+  }
+
   async function runAgent(prompt: string): Promise<void> {
+    const activeProvider = ensureProvider();
+    if (!activeProvider) return; // provider unavailable; error already shown
     setBusy(true);
     const abort = new AbortController();
     abortRef.current = abort;
@@ -102,7 +125,7 @@ export function App(props: AppProps): React.ReactElement {
       yolo: props.yolo,
     });
     const loop = new AgentLoop({
-      provider,
+      provider: activeProvider,
       registry,
       approver,
       policy: policyRef.current,
@@ -334,6 +357,9 @@ export function App(props: AppProps): React.ReactElement {
   });
 
   useEffect(() => {
+    // Surface a provider/config error (e.g. missing API key) immediately, so the
+    // status is clear without the user having to send a message first.
+    ensureProvider();
     if (props.initialPrompt) {
       pushLog('user', props.initialPrompt);
       void runAgent(props.initialPrompt);
@@ -361,7 +387,7 @@ export function App(props: AppProps): React.ReactElement {
 
       <StatusBar
         mode={mode}
-        provider={provider.name}
+        provider={provider?.name ?? session.provider}
         model={model}
         pct={pct}
         files={filesEdited}

@@ -1,5 +1,6 @@
 import { createInterface } from 'node:readline/promises';
 import chalk from 'chalk';
+import { SkyError } from '../errors/index.js';
 import type { Mode, Session } from '../session/types.js';
 import { AgentLoop } from '../agent/loop.js';
 import { Policy } from '../safety/policy.js';
@@ -61,12 +62,18 @@ export async function runSession(options: RunSessionOptions): Promise<number> {
 
   // Interactive: prefer the Cursor-style Ink TUI (slash palette, status bar,
   // inline diff approvals). It is imported dynamically so headless mode never
-  // loads React/Ink. Fall back to the readline loop if Ink cannot start.
+  // loads React/Ink. Only fall back to readline if Ink itself cannot load —
+  // NOT for provider/config errors, which the TUI surfaces in-UI. The provider
+  // is created lazily by the TUI so a missing API key never blocks startup.
+  let runTui: typeof import('../tui/run.js').runTui | undefined;
   try {
-    const { runTui } = await import('../tui/run.js');
-    const provider = makeProvider(runtime, global);
+    ({ runTui } = await import('../tui/run.js'));
+  } catch (error) {
+    runtime.logger.warn('tui.unavailable', { detail: (error as Error).message });
+  }
+  if (runTui) {
     await runTui({
-      provider,
+      makeProvider: () => makeProvider(runtime, global),
       registry: runtime.registry,
       session,
       store: runtime.store,
@@ -78,8 +85,6 @@ export async function runSession(options: RunSessionOptions): Promise<number> {
       plugins: runtime.plugins,
     });
     return 0;
-  } catch (error) {
-    runtime.logger.warn('tui.fallback', { detail: (error as Error).message });
   }
 
   const c = runtime.color ? chalk : ({ gray: (s: string) => s, cyan: (s: string) => s, bold: (s: string) => s } as any);
@@ -89,10 +94,13 @@ export async function runSession(options: RunSessionOptions): Promise<number> {
   );
   process.stdout.write(c.gray('Type your request. /help for commands, /exit to quit.\n\n'));
 
-  // Run the initial prompt first if provided.
+  // Run the initial prompt first if provided (errors stay in-session).
   if (options.initialPrompt) {
-    const code = await runTurn(options, options.initialPrompt);
-    if (code !== 0) return code;
+    try {
+      await runTurn(options, options.initialPrompt);
+    } catch (error) {
+      process.stderr.write(c.gray(`${SkyError.from(error).toUserMessage()}\n`));
+    }
   }
 
   const rl = createInterface({ input: process.stdin, output: process.stdout });
@@ -105,7 +113,13 @@ export async function runSession(options: RunSessionOptions): Promise<number> {
         if (done) break;
         continue;
       }
-      await runTurn(options, line);
+      // A turn error (bad key, provider down, …) must never exit the session.
+      try {
+        await runTurn(options, line);
+      } catch (error) {
+        const skyError = SkyError.from(error);
+        process.stderr.write(c.gray(`${skyError.toUserMessage()}\n`));
+      }
       process.stdout.write('\n');
     }
   } finally {

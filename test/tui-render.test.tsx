@@ -11,6 +11,7 @@ import { ToolRegistry } from '../src/tools/index.js';
 import { defaultConfig } from '../src/config/index.js';
 import { nullLogger } from '../src/logging/index.js';
 import type { LoadedPlugin } from '../src/plugins/index.js';
+import { SkyError, ErrorCode } from '../src/errors/index.js';
 
 let dir: string;
 const delay = (ms = 30) => new Promise((r) => setTimeout(r, ms));
@@ -24,7 +25,7 @@ function mount(plugins?: LoadedPlugin[]) {
     session,
     ...render(
       React.createElement(App, {
-        provider: new MockProvider(),
+        makeProvider: () => new MockProvider(),
         registry: new ToolRegistry(),
         session,
         store,
@@ -112,6 +113,35 @@ describe('Ink TUI', () => {
     const frame = strip(lastFrame() ?? '');
     // the selection marker moved to the second command
     expect(frame).toMatch(/❯ \/mode/);
+    unmount();
+  });
+
+  it('shows a provider error in-UI without crashing (no autoclose)', async () => {
+    const store = new SessionStore({ dir: join(dir, 'sessions'), indexPath: join(dir, 'sessions.index') });
+    const session = store.create({ mode: 'agent', cwd: dir, provider: 'zenmux', model: 'x-ai/grok-4.5-free' });
+    const { stdin, lastFrame, unmount } = render(
+      React.createElement(App, {
+        makeProvider: () => {
+          throw new SkyError(ErrorCode.NoApiKey, { name: 'zenmux' });
+        },
+        registry: new ToolRegistry(),
+        session,
+        store,
+        config: defaultConfig(),
+        logger: nullLogger,
+      }),
+    );
+    await delay(60);
+    // Error is surfaced and the input box is still present (session stays open).
+    const frame = strip(lastFrame() ?? '');
+    expect(frame).toContain('SKY-E-1002');
+    expect(frame).toContain('type / for commands');
+    // Sending a message still does not crash; the error is shown again.
+    stdin.write('review');
+    await delay();
+    stdin.write('\r');
+    await delay(60);
+    expect(strip(lastFrame() ?? '')).toContain('SKY-E-1002');
     unmount();
   });
 

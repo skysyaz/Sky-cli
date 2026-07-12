@@ -115,8 +115,11 @@ class StructuredLogger implements Logger {
     };
     const serialized = JSON.stringify(line);
     this.stream?.write(serialized + '\n');
-    // warn/error/fatal always reach stderr; everything else only with --verbose.
-    if (this.toStderr || LEVEL_ORDER[level] >= LEVEL_ORDER.warn) {
+    // Only write to stderr when explicitly enabled (--verbose) or on a fatal
+    // error. Forcing warn/error to stderr corrupts the interactive TUI; those
+    // still go to the log file, and user-facing errors are surfaced by the CLI
+    // command layer and the TUI itself.
+    if (this.toStderr || level === 'fatal') {
       process.stderr.write(serialized + '\n');
     }
   }
