@@ -124,6 +124,28 @@ A marketplace is any git repo with a `.claude-plugin/marketplace.json` listing
 its plugins; each plugin may contribute `commands/*.md` (slash commands) and a
 `.mcp.json` (MCP servers). Marketplaces are cloned under `~/.sky/plugins/`.
 
+Convenience shortcuts:
+
+```sh
+/plugin install owner/repo   # add the marketplace AND install its plugin(s)
+/plugin search worktree      # search installed marketplaces
+```
+
+Inside the TUI, installing a plugin **reloads its commands immediately** — no
+restart needed.
+
+### Setting a provider / API key from the CLI
+
+You don't have to juggle environment variables. Inside the TUI:
+
+```sh
+/provider zenmux             # switch provider (arrow-selectable)
+/key sk-ai-v1-...            # save the key for the current provider and reload live
+```
+
+`/key` writes the key to `~/.sky/config.json` for the active provider and rebuilds
+the provider on the spot, so your next message works without restarting.
+
 > Note: the base spec (§1.5) lists a plugin marketplace as a non-goal; this is an
 > explicit opt-in extension layered on top.
 

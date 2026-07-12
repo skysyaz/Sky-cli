@@ -6,7 +6,7 @@ import { AgentLoop } from '../agent/loop.js';
 import { Policy } from '../safety/policy.js';
 import { renderStream } from './render.js';
 import { createInteractivePrompter, denyingPrompter } from './prompter.js';
-import { makeApprover, makeProvider, type GlobalOptions, type Runtime } from './runtime.js';
+import { makeApprover, makeProvider, makeProviderByName, type GlobalOptions, type Runtime } from './runtime.js';
 
 export interface RunSessionOptions {
   runtime: Runtime;
@@ -73,7 +73,7 @@ export async function runSession(options: RunSessionOptions): Promise<number> {
   }
   if (runTui) {
     await runTui({
-      makeProvider: () => makeProvider(runtime, global),
+      makeProvider: (name: string) => makeProviderByName(runtime, name),
       registry: runtime.registry,
       session,
       store: runtime.store,

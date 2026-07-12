@@ -102,6 +102,11 @@ export function makeProvider(runtime: Runtime, options: GlobalOptions): Provider
   return createProvider({ config: runtime.config, provider: providerName, logger: runtime.logger });
 }
 
+/** Instantiate a provider by name (used by the TUI to switch providers live). */
+export function makeProviderByName(runtime: Runtime, providerName: string): Provider {
+  return createProvider({ config: runtime.config, provider: providerName, logger: runtime.logger });
+}
+
 /** Build the safety Approver for a run, wiring flags and the interactive prompter. */
 export function makeApprover(
   runtime: Runtime,

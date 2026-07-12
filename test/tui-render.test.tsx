@@ -116,6 +116,93 @@ describe('Ink TUI', () => {
     unmount();
   });
 
+  it('switches provider live with /provider', async () => {
+    const store = new SessionStore({ dir: join(dir, 'sessions'), indexPath: join(dir, 'sessions.index') });
+    const session = store.create({ mode: 'agent', cwd: dir, provider: 'zenmux', model: 'x-ai/grok-4.5-free' });
+    const { stdin, lastFrame, unmount } = render(
+      React.createElement(App, {
+        makeProvider: (name: string) => {
+          if (name === 'zenmux') throw new SkyError(ErrorCode.NoApiKey, { name });
+          return new MockProvider();
+        },
+        registry: new ToolRegistry(),
+        session,
+        store,
+        config: defaultConfig(),
+        logger: nullLogger,
+      }),
+    );
+    await delay(60);
+    expect(strip(lastFrame() ?? '')).toContain('SKY-E-1002');
+    stdin.write('/provider mock');
+    await delay();
+    stdin.write('\r');
+    await delay(60);
+    const frame = strip(lastFrame() ?? '');
+    expect(frame).toContain('Provider → mock (ready)');
+    expect(frame).toMatch(/⬢ agent · mock/);
+    unmount();
+  });
+
+  it('sets the API key with /key and reloads the provider live', async () => {
+    process.env.SKY_HOME = join(dir, 'home');
+    const config = defaultConfig();
+    const store = new SessionStore({ dir: join(dir, 'sessions'), indexPath: join(dir, 'sessions.index') });
+    const session = store.create({ mode: 'agent', cwd: dir, provider: 'zenmux', model: 'x-ai/grok-4.5-free' });
+    const { stdin, lastFrame, unmount } = render(
+      React.createElement(App, {
+        // Provider succeeds only once a key is present in config (mimics real resolution).
+        makeProvider: (name: string) => {
+          if (name === 'zenmux' && !config.providers[name]?.apiKey) throw new SkyError(ErrorCode.NoApiKey, { name });
+          return new MockProvider();
+        },
+        registry: new ToolRegistry(),
+        session,
+        store,
+        config,
+        logger: nullLogger,
+      }),
+    );
+    await delay(60);
+    expect(strip(lastFrame() ?? '')).toContain('SKY-E-1002');
+    stdin.write('/key sk-live-test-key');
+    await delay();
+    stdin.write('\r');
+    await delay(80);
+    expect(strip(lastFrame() ?? '')).toContain('API key saved for zenmux');
+    expect(config.providers.zenmux?.apiKey).toBe('sk-live-test-key');
+    unmount();
+    delete process.env.SKY_HOME;
+  });
+
+  it('installs a plugin from the TUI and reloads its commands live', async () => {
+    process.env.SKY_HOME = join(dir, 'home');
+    // Fixture marketplace on disk (copy path, no network).
+    const fixture = join(dir, 'ponytail-src');
+    mkdirSync(join(fixture, '.claude-plugin'), { recursive: true });
+    mkdirSync(join(fixture, 'commands'), { recursive: true });
+    writeFileSync(
+      join(fixture, '.claude-plugin', 'marketplace.json'),
+      JSON.stringify({ name: 'ponytail', plugins: [{ name: 'ponytail', source: './', description: 'wt' }] }),
+    );
+    writeFileSync(join(fixture, 'commands', 'create.md'), '---\ndescription: Create a worktree\n---\nGo.');
+
+    const { stdin, lastFrame, unmount } = mount();
+    await delay();
+    stdin.write(`/plugin install ${fixture}`); // owner/repo-style shorthand (local path)
+    await delay();
+    stdin.write('\r');
+    await delay(300);
+    expect(strip(lastFrame() ?? '')).toContain('Reloaded');
+
+    // The freshly-installed command now appears in the palette.
+    stdin.write('/pony');
+    await delay();
+    expect(strip(lastFrame() ?? '')).toContain('/ponytail:create');
+    unmount();
+    delete process.env.SKY_HOME;
+  });
+
   it('shows a provider error in-UI without crashing (no autoclose)', async () => {
     const store = new SessionStore({ dir: join(dir, 'sessions'), indexPath: join(dir, 'sessions.index') });
     const session = store.create({ mode: 'agent', cwd: dir, provider: 'zenmux', model: 'x-ai/grok-4.5-free' });

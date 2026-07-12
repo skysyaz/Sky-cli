@@ -59,9 +59,38 @@ export async function runPluginCommand(args: string[], manager: PluginManager): 
       }
     }
 
+    case 'search': {
+      const query = rest.join(' ').toLowerCase();
+      const results: string[] = [];
+      for (const m of manager.listMarketplaces()) {
+        for (const p of m.plugins) {
+          const hay = `${p.name} ${p.description ?? ''}`.toLowerCase();
+          if (!query || hay.includes(query)) {
+            results.push(`  ${p.name}@${m.name}${p.description ? ` — ${p.description}` : ''}`);
+          }
+        }
+      }
+      if (results.length === 0) {
+        return manager.listMarketplaces().length === 0
+          ? ['No marketplaces registered. Add one first:', '  /plugin marketplace add owner/repo']
+          : [`No plugins match "${query}".`];
+      }
+      return ['Matching plugins:', ...results, 'Install with: /plugin install <name>@<marketplace>'];
+    }
+
     case 'install': {
       const spec = rest[0];
-      if (!spec) throw new SkyError(ErrorCode.MissingArgument, { name: 'plugin@marketplace' });
+      if (!spec) throw new SkyError(ErrorCode.MissingArgument, { name: 'plugin@marketplace or owner/repo' });
+      // Convenience: `install owner/repo` adds the marketplace and installs its plugins.
+      if (spec.includes('/') && !spec.includes('@')) {
+        const lines = await manager.addMarketplace(spec);
+        const market = manager.listMarketplaces().find((m) => m.source === spec);
+        if (!market) throw new SkyError(ErrorCode.InternalError, { detail: `could not resolve marketplace for ${spec}` });
+        if (market.plugins.length === 0) return [...lines, 'No plugins listed in this marketplace.'];
+        const out = [...lines];
+        for (const p of market.plugins) out.push(...manager.install(`${p.name}@${market.name}`));
+        return out;
+      }
       return manager.install(spec);
     }
 

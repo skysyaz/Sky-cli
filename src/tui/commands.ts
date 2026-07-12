@@ -20,14 +20,23 @@ export const MODEL_SUGGESTIONS = [
   'qwen3-coder:480b',
 ];
 
+/** The providers a user can switch to via `/provider`. */
+export const PROVIDER_NAMES = ['openai', 'anthropic', 'ollama', 'ollama-cloud', 'openrouter', 'zenmux', 'mock'];
+
 export const SLASH_COMMANDS: SlashCommand[] = [
   { name: 'help', description: 'Show keybindings and commands' },
   { name: 'mode', description: 'Switch mode', args: ['agent', 'plan', 'ask'] },
   { name: 'model', description: 'Switch model', args: MODEL_SUGGESTIONS },
+  { name: 'provider', description: 'Switch LLM provider', args: PROVIDER_NAMES },
+  { name: 'key', description: 'Set the API key for the current provider (saved + reloaded)' },
   { name: 'cost', description: 'Show token and estimated cost usage' },
   { name: 'diff', description: 'Show uncommitted changes this session' },
   { name: 'compact', description: 'Summarize old turns to reclaim context' },
-  { name: 'plugin', description: 'Manage plugins', args: ['marketplace', 'install', 'list', 'uninstall'] },
+  {
+    name: 'plugin',
+    description: 'Manage plugins',
+    args: ['marketplace', 'search', 'install', 'list', 'uninstall'],
+  },
   { name: 'clear', description: 'Clear the screen (keeps session history)' },
   { name: 'exit', description: 'Save the session and quit' },
 ];

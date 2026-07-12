@@ -124,4 +124,20 @@ describe('runPluginCommand (shared CLI/TUI logic)', () => {
   it('reports missing arguments', async () => {
     await expect(runPluginCommand(['marketplace', 'add'], manager)).rejects.toThrow(/Missing required argument/);
   });
+
+  it('searches plugins across registered marketplaces', async () => {
+    await runPluginCommand(['marketplace', 'add', marketSrc], manager);
+    const hit = await runPluginCommand(['search', 'worktree'], manager);
+    expect(hit.join('\n')).toContain('ponytail@ponytail');
+    const miss = await runPluginCommand(['search', 'nonsense'], manager);
+    expect(miss.join('\n')).toMatch(/No plugins match/);
+  });
+
+  it('installs via the owner/repo shorthand (adds marketplace + installs)', async () => {
+    // marketSrc is a path containing "/" and no "@", triggering the shorthand.
+    const lines = await runPluginCommand(['install', marketSrc], manager);
+    expect(lines.join('\n')).toContain('Added marketplace');
+    expect(lines.join('\n')).toContain('Installed');
+    expect(manager.listInstalled().map((p) => p.name)).toContain('ponytail');
+  });
 });

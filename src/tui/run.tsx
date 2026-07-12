@@ -10,7 +10,7 @@ import type { LoadedPlugin } from '../plugins/index.js';
 import { App } from './App.js';
 
 export interface RunTuiOptions {
-  makeProvider: () => Provider;
+  makeProvider: (providerName: string) => Provider;
   registry: ToolRegistry;
   session: Session;
   store: SessionStore;

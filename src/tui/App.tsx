@@ -11,19 +11,22 @@ import { AuditLog } from '../safety/audit.js';
 import { Approver, type Prompter, type ApprovalAnswer, type ApprovalPromptRequest } from '../safety/approver.js';
 import { AgentLoop } from '../agent/loop.js';
 import { SkyError } from '../errors/index.js';
+import { writeConfig } from '../config/index.js';
 import { PluginManager, runPluginCommand, type LoadedPlugin, type PluginCommand } from '../plugins/index.js';
 import {
   getSuggestions,
   parseInput,
   SLASH_COMMANDS,
   MODEL_SUGGESTIONS,
+  PROVIDER_NAMES,
   type Suggestion,
 } from './commands.js';
 
 export interface AppProps {
-  /** Lazily create the provider so a config error (e.g. missing API key) shows
-   *  as an in-UI error instead of preventing the TUI from mounting. */
-  makeProvider: () => Provider;
+  /** Lazily create a provider by name so a config error (e.g. missing API key)
+   *  shows as an in-UI error instead of preventing the TUI from mounting, and so
+   *  `/provider` can switch providers live. */
+  makeProvider: (providerName: string) => Provider;
   registry: ToolRegistry;
   session: Session;
   store: SessionStore;
@@ -68,12 +71,10 @@ export function App(props: AppProps): React.ReactElement {
   const policyRef = useRef(new Policy(config, session.sessionAllowlist));
   const auditRef = useRef(new AuditLog({ logger: props.logger }));
   const pluginManagerRef = useRef(new PluginManager({ logger: props.logger }));
+  const [plugins, setPlugins] = useState<LoadedPlugin[]>(props.plugins ?? []);
 
   // Flatten plugin-contributed commands for the palette and for execution.
-  const pluginCommands = useMemo<PluginCommand[]>(
-    () => (props.plugins ?? []).flatMap((p) => p.commands),
-    [props.plugins],
-  );
+  const pluginCommands = useMemo<PluginCommand[]>(() => plugins.flatMap((p) => p.commands), [plugins]);
   const extraCommands = useMemo(
     () => pluginCommands.map((c) => ({ name: c.name, description: c.description })),
     [pluginCommands],
@@ -96,18 +97,23 @@ export function App(props: AppProps): React.ReactElement {
   const prompter: Prompter = (request) =>
     new Promise<ApprovalAnswer>((resolve) => setApproval({ request, resolve }));
 
-  /** Create the provider on demand; on failure, show the error in-UI (no crash). */
-  function ensureProvider(): Provider | null {
-    if (provider) return provider;
+  /** Build the provider for a given name, updating state; shows errors in-UI. */
+  function buildProvider(name: string): Provider | null {
     try {
-      const created = props.makeProvider();
+      const created = props.makeProvider(name);
       setProvider(created);
       return created;
     } catch (error) {
+      setProvider(null);
       const skyError = SkyError.from(error);
-      pushLog('error', `${skyError.toUserMessage()} — fix the config or use /model, then try again.`);
+      pushLog('error', `${skyError.toUserMessage()} — set a key with /key <value> or switch with /provider.`);
       return null;
     }
+  }
+
+  /** Reuse the current provider or build one for the active session provider. */
+  function ensureProvider(): Provider | null {
+    return provider ?? buildProvider(session.provider);
   }
 
   async function runAgent(prompt: string): Promise<void> {
@@ -185,7 +191,10 @@ export function App(props: AppProps): React.ReactElement {
         pushLog(
           'system',
           [
-            'Commands: /help /mode /model /cost /diff /compact /clear /exit',
+            'Commands: /help /mode /model /provider /key /cost /diff /plugin /clear /exit',
+            '/provider <name>   switch LLM provider',
+            '/key <api-key>     set + save the API key for the current provider (reloads live)',
+            '/plugin marketplace add <owner/repo> · /plugin install <name@market> · /plugin search <q>',
             'Type / to open the palette · ↑/↓ to move · Tab/Enter to select · Esc to clear',
             'Enter submits · Ctrl+C cancels a turn (twice to quit) · Ctrl+D quits',
           ].join('\n'),
@@ -213,11 +222,50 @@ export function App(props: AppProps): React.ReactElement {
           session.model = arg;
           store.save(session);
           setModel(arg);
+          buildProvider(session.provider); // rebuild so token limits/pricing update
           pushLog('system', `Model → ${arg}`);
         } else {
           pushLog('system', 'Usage: /model <name>');
         }
         break;
+      case 'provider':
+        if (arg && PROVIDER_NAMES.includes(arg)) {
+          session.provider = arg;
+          config.defaultProvider = arg as typeof config.defaultProvider;
+          const providerDefaultModel = config.providers[arg]?.defaultModel;
+          if (providerDefaultModel) {
+            session.model = providerDefaultModel;
+            setModel(providerDefaultModel);
+          }
+          store.save(session);
+          const built = buildProvider(arg);
+          pushLog('system', `Provider → ${arg}${built ? ' (ready)' : ' — set a key with /key <value>'}`);
+        } else {
+          pushLog('system', `Current provider: ${session.provider}. Usage: /provider <${PROVIDER_NAMES.join('|')}>`);
+        }
+        break;
+      case 'key': {
+        const value = arg?.trim();
+        if (!value) {
+          pushLog('system', 'Usage: /key <api-key>   (saved for the current provider and reloaded)');
+          break;
+        }
+        const providerName = session.provider;
+        config.providers[providerName] = { ...(config.providers[providerName] ?? {}), apiKey: value };
+        try {
+          writeConfig(config);
+        } catch (error) {
+          pushLog('error', `Saved in-session but could not persist: ${(error as Error).message}`);
+        }
+        const built = buildProvider(providerName);
+        pushLog(
+          'system',
+          built
+            ? `API key saved for ${providerName}. Ready — send your message.`
+            : `Key set but ${providerName} still failed to initialize.`,
+        );
+        break;
+      }
       case 'cost':
         pushLog(
           'system',
@@ -247,12 +295,34 @@ export function App(props: AppProps): React.ReactElement {
     }
   }
 
+  /** Reload installed plugins so their commands + MCP servers apply immediately. */
+  function reloadPlugins(): LoadedPlugin[] {
+    const loaded = pluginManagerRef.current.load();
+    setPlugins(loaded);
+    for (const plugin of loaded) {
+      for (const server of plugin.mcpServers) {
+        if (!config.mcp.servers.some((s) => s.name === server.name)) {
+          config.mcp.servers.push({ ...server, approvalMode: 'manual' });
+        }
+      }
+    }
+    return loaded;
+  }
+
   async function runPluginSlash(argString: string): Promise<void> {
     const args = argString.trim().split(/\s+/).filter(Boolean);
     pushLog('system', `plugin ${args.join(' ')}…`);
     try {
       const lines = await runPluginCommand(args, pluginManagerRef.current);
       for (const line of lines) pushLog('system', line);
+
+      // Auto-reload after any state-changing operation so new commands appear now.
+      const action = args[0];
+      if (action && ['install', 'uninstall', 'remove', 'marketplace'].includes(action)) {
+        const loaded = reloadPlugins();
+        const commandList = loaded.flatMap((p) => p.commands.map((c) => `/${c.name}`)).join(', ') || 'none';
+        pushLog('system', `Reloaded — ${loaded.length} plugin(s). Commands: ${commandList}`);
+      }
     } catch (error) {
       pushLog('error', error instanceof Error ? error.message : String(error));
     }
