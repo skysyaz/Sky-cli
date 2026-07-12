@@ -257,6 +257,8 @@ export function App(props: AppProps): React.ReactElement {
         } catch (error) {
           pushLog('error', `Saved in-session but could not persist: ${(error as Error).message}`);
         }
+        // Rebuild provider with updated config — the makeProvider function reads from
+        // the in-memory config object which we just updated, so it will now see the key.
         const built = buildProvider(providerName);
         pushLog(
           'system',
@@ -299,12 +301,19 @@ export function App(props: AppProps): React.ReactElement {
   function reloadPlugins(): LoadedPlugin[] {
     const loaded = pluginManagerRef.current.load();
     setPlugins(loaded);
+    // Merge any new MCP servers from plugins into config
     for (const plugin of loaded) {
       for (const server of plugin.mcpServers) {
         if (!config.mcp.servers.some((s) => s.name === server.name)) {
           config.mcp.servers.push({ ...server, approvalMode: 'manual' });
         }
       }
+    }
+    // Persist updated config with newly added MCP servers to disk
+    try {
+      writeConfig(config);
+    } catch (error) {
+      pushLog('error', `Could not persist plugin MCP servers: ${(error as Error).message}`);
     }
     return loaded;
   }
@@ -319,6 +328,11 @@ export function App(props: AppProps): React.ReactElement {
       // Auto-reload after any state-changing operation so new commands appear now.
       const action = args[0];
       if (action && ['install', 'uninstall', 'remove', 'marketplace'].includes(action)) {
+        const loaded = reloadPlugins();
+        const commandList = loaded.flatMap((p) => p.commands.map((c) => `/${c.name}`)).join(', ') || 'none';
+        pushLog('system', `Reloaded — ${loaded.length} plugin(s). Commands: ${commandList}`);
+      } else if (!action) {
+        // No subcommand given (e.g. just `/plugin`) — still reload to show current state
         const loaded = reloadPlugins();
         const commandList = loaded.flatMap((p) => p.commands.map((c) => `/${c.name}`)).join(', ') || 'none';
         pushLog('system', `Reloaded — ${loaded.length} plugin(s). Commands: ${commandList}`);
