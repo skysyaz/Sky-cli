@@ -1,0 +1,180 @@
+import { z } from 'zod';
+
+/**
+ * The canonical configuration schema (Appendix A). Types are inferred from the
+ * schema so the schema and the static type can never drift (§3.7). Defaults
+ * defined here are precedence level 1 — the lowest — in the merge order of §7.6.
+ */
+
+export const providerNameSchema = z.enum(['openai', 'anthropic', 'ollama', 'openrouter', 'mock']);
+export type ProviderName = z.infer<typeof providerNameSchema>;
+
+const modelMetaSchema = z.object({
+  contextWindow: z.number().int().positive().optional(),
+  maxOutput: z.number().int().positive().optional(),
+  inputCostPerMTok: z.number().nonnegative().optional(),
+  outputCostPerMTok: z.number().nonnegative().optional(),
+});
+
+const fallbackSchema = z.object({
+  provider: providerNameSchema,
+  model: z.string(),
+  triggerAfter: z.number().int().nonnegative().default(4),
+});
+
+// A.2 providers.*
+const providerConfigSchema = z.object({
+  apiKeyEnv: z.string().optional(),
+  apiKey: z.string().optional(),
+  baseUrl: z.string().url().optional(),
+  defaultModel: z.string().optional(),
+  models: z.record(modelMetaSchema).optional(),
+  fallback: fallbackSchema.optional(),
+});
+export type ProviderConfig = z.infer<typeof providerConfigSchema>;
+
+// A.3 tools.*
+const toolsSchema = z
+  .object({
+    read: z
+      .object({
+        autoApprove: z.array(z.string()).default([]),
+        deny: z.array(z.string()).default(['.env*', 'credentials*', '*.pem', '*.key']),
+      })
+      .default({}),
+    write: z
+      .object({
+        allowOutsideCwd: z.boolean().default(false),
+        autoApprove: z.array(z.string()).default([]),
+      })
+      .default({}),
+    edit: z
+      .object({
+        autoApprove: z.array(z.string()).default([]),
+      })
+      .default({}),
+    shell: z
+      .object({
+        autoApprove: z.array(z.string()).default([]),
+        deny: z
+          .array(z.string())
+          .default(['rm -rf /', 'mkfs.*', 'dd of=/dev/*', 'shutdown', 'reboot']),
+        env: z.record(z.string()).default({}),
+        timeoutMs: z.number().int().positive().default(120_000),
+      })
+      .default({}),
+    git: z
+      .object({
+        allowForcePush: z.boolean().default(false),
+        autoApproveReads: z.boolean().default(true),
+      })
+      .default({}),
+  })
+  .default({});
+export type ToolsConfig = z.infer<typeof toolsSchema>;
+
+// A.4 tui.*
+const tuiSchema = z
+  .object({
+    theme: z
+      .object({
+        colors: z
+          .object({
+            accent: z.string().default('cyan'),
+            success: z.string().default('green'),
+            error: z.string().default('red'),
+            warning: z.string().default('yellow'),
+            info: z.string().default('blue'),
+            planning: z.string().default('magenta'),
+          })
+          .default({}),
+        glyphs: z
+          .object({
+            indicator: z.string().default('⬢'),
+            bullet: z.string().default('•'),
+            arrow: z.string().default('→'),
+          })
+          .default({}),
+        layout: z
+          .object({
+            submitOnEnter: z.boolean().default(true),
+            showTokenBar: z.boolean().default(true),
+            compactMode: z.boolean().default(false),
+          })
+          .default({}),
+      })
+      .default({}),
+  })
+  .default({});
+export type TuiConfig = z.infer<typeof tuiSchema>;
+
+// A.5 sessions.*
+const sessionsSchema = z
+  .object({
+    autoCompact: z.boolean().default(true),
+    autoCompactThreshold: z.number().int().positive().default(50_000),
+    retentionDays: z.number().int().positive().default(90),
+    budgetUsd: z.number().nonnegative().optional(),
+  })
+  .default({});
+
+// A.6 logging.*
+const loggingSchema = z
+  .object({
+    level: z.enum(['trace', 'debug', 'info', 'warn', 'error']).default('info'),
+    fileRetentionDays: z.number().int().positive().default(30),
+  })
+  .default({});
+
+// A.7 mcp.servers[]
+const mcpServerSchema = z.object({
+  name: z.string(),
+  command: z.string(),
+  args: z.array(z.string()).default([]),
+  env: z.record(z.string()).default({}),
+  approvalMode: z.enum(['auto', 'manual', 'deny']).default('manual'),
+});
+export type McpServerConfig = z.infer<typeof mcpServerSchema>;
+
+const mcpSchema = z
+  .object({
+    servers: z.array(mcpServerSchema).default([]),
+  })
+  .default({});
+
+// A.8 observability.*
+const observabilitySchema = z
+  .object({
+    otlpEndpoint: z.string().url().optional(),
+    metricsPort: z.number().int().positive().optional(),
+    webhook: z.object({ url: z.string().url() }).optional(),
+    sentryDsn: z.string().optional(),
+  })
+  .default({});
+
+/** A.1 top-level configuration schema. */
+export const configSchema = z.object({
+  schemaVersion: z.literal(1).default(1),
+  defaultProvider: providerNameSchema.default('openai'),
+  defaultModel: z.string().default('gpt-4o'),
+  providers: z.record(providerConfigSchema).default({}),
+  tools: toolsSchema,
+  tui: tuiSchema,
+  sessions: sessionsSchema,
+  logging: loggingSchema,
+  mcp: mcpSchema,
+  observability: observabilitySchema,
+});
+
+/** The fully-resolved, validated configuration object. */
+export type SkyConfig = z.infer<typeof configSchema>;
+
+/** Parse an arbitrary object into a fully-defaulted config (throws on failure). */
+export function parseConfig(input: unknown): SkyConfig {
+  return configSchema.parse(input ?? {});
+}
+
+/** The default configuration (every default applied to an empty object). */
+export function defaultConfig(): SkyConfig {
+  return configSchema.parse({});
+}

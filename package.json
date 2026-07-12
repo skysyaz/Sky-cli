@@ -1,0 +1,71 @@
+{
+  "name": "@sky/cli",
+  "version": "1.0.0",
+  "description": "Sky — a Node.js/TypeScript command-line AI agent with an interactive TUI, multi-provider LLM support, and production-grade safety workflows.",
+  "type": "module",
+  "license": "MIT",
+  "author": "Sky Engineering",
+  "keywords": [
+    "cli",
+    "ai",
+    "agent",
+    "llm",
+    "openai",
+    "anthropic",
+    "ollama",
+    "tui",
+    "developer-tools"
+  ],
+  "bin": {
+    "sky": "./dist/cli/main.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dev": "tsx src/cli/main.ts",
+    "build": "tsup",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "lint": "eslint src test --ext .ts,.tsx",
+    "format": "prettier --write \"src/**/*.{ts,tsx}\" \"test/**/*.ts\"",
+    "sky": "tsx src/cli/main.ts"
+  },
+  "dependencies": {
+    "chalk": "^5.3.0",
+    "commander": "^12.1.0",
+    "diff": "^5.2.0",
+    "execa": "^9.3.0",
+    "p-retry": "^6.2.0",
+    "pino": "^9.3.0",
+    "simple-git": "^3.25.0",
+    "zod": "^3.23.8"
+  },
+  "optionalDependencies": {
+    "@anthropic-ai/sdk": "^0.30.0",
+    "openai": "^4.56.0"
+  },
+  "devDependencies": {
+    "@types/diff": "^5.2.1",
+    "@types/node": "^20.14.0",
+    "@vitest/coverage-v8": "^1.6.0",
+    "tsup": "^8.2.0",
+    "tsx": "^4.16.0",
+    "typescript": "^5.4.0",
+    "vitest": "^1.6.0"
+  }
+}
