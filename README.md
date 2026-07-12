@@ -85,6 +85,7 @@ sky --provider mock ask "what does this project do?"
 | `sky init`          | —     | Create `~/.sky/config.json` with defaults                |
 | `sky mcp`           | —     | Register / list / remove / test MCP tool servers         |
 | `sky update`        | —     | Update Sky to the latest version (pull + rebuild)        |
+| `sky plugin`        | —     | Add marketplaces, install/list/uninstall plugins         |
 
 ### Global flags
 
@@ -101,6 +102,30 @@ sky --yolo --json "fix lint errors in src/"
 
 `--yolo` and `--force` never bypass the hardcoded denylist of destructive shell
 commands (`rm -rf /`, `mkfs`, `dd of=/dev/*`, …) — those are always blocked.
+
+## Plugins
+
+Sky can extend itself with plugins from git-hosted marketplaces (Claude Code
+marketplace format). Installed plugins are **auto-loaded on every `sky` start** —
+their slash commands appear in the palette and their MCP servers are registered.
+
+```sh
+# from the CLI
+sky plugin marketplace add DietrichGebert/ponytail
+sky plugin install ponytail@ponytail
+sky plugin list
+
+# or, identically, from inside the TUI
+/plugin marketplace add DietrichGebert/ponytail
+/plugin install ponytail@ponytail
+```
+
+A marketplace is any git repo with a `.claude-plugin/marketplace.json` listing
+its plugins; each plugin may contribute `commands/*.md` (slash commands) and a
+`.mcp.json` (MCP servers). Marketplaces are cloned under `~/.sky/plugins/`.
+
+> Note: the base spec (§1.5) lists a plugin marketplace as a non-goal; this is an
+> explicit opt-in extension layered on top.
 
 ## Safety model
 

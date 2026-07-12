@@ -10,6 +10,7 @@ import { Policy } from '../safety/policy.js';
 import { AuditLog } from '../safety/audit.js';
 import { Approver, type Prompter, type ApprovalAnswer, type ApprovalPromptRequest } from '../safety/approver.js';
 import { AgentLoop } from '../agent/loop.js';
+import { PluginManager, runPluginCommand, type LoadedPlugin, type PluginCommand } from '../plugins/index.js';
 import {
   getSuggestions,
   parseInput,
@@ -28,6 +29,8 @@ export interface AppProps {
   force?: boolean;
   yolo?: boolean;
   initialPrompt?: string;
+  /** Plugins auto-loaded at startup; their commands appear in the palette. */
+  plugins?: LoadedPlugin[];
 }
 
 type LogKind = 'user' | 'assistant' | 'tool' | 'tool-result' | 'system' | 'error';
@@ -60,10 +63,21 @@ export function App(props: AppProps): React.ReactElement {
   const abortRef = useRef<AbortController | null>(null);
   const policyRef = useRef(new Policy(config, session.sessionAllowlist));
   const auditRef = useRef(new AuditLog({ logger: props.logger }));
+  const pluginManagerRef = useRef(new PluginManager({ logger: props.logger }));
+
+  // Flatten plugin-contributed commands for the palette and for execution.
+  const pluginCommands = useMemo<PluginCommand[]>(
+    () => (props.plugins ?? []).flatMap((p) => p.commands),
+    [props.plugins],
+  );
+  const extraCommands = useMemo(
+    () => pluginCommands.map((c) => ({ name: c.name, description: c.description })),
+    [pluginCommands],
+  );
 
   const tokenLimit = useMemo(() => provider.tokenLimits(model).contextWindow, [provider, model]);
   const modelSuggestions = useMemo(() => [model, ...MODEL_SUGGESTIONS.filter((m) => m !== model)], [model]);
-  const suggestions = busy || approval ? [] : getSuggestions(input, { modelSuggestions });
+  const suggestions = busy || approval ? [] : getSuggestions(input, { modelSuggestions, extraCommands });
   const paletteOpen = suggestions.length > 0;
   const clampedSelected = suggestions.length ? Math.min(selected, suggestions.length - 1) : 0;
 
@@ -193,9 +207,31 @@ export function App(props: AppProps): React.ReactElement {
       case 'compact':
         pushLog('system', 'Compaction runs automatically past the threshold; manual /compact is a no-op here.');
         break;
-      default:
-        pushLog('error', `Unknown command: /${name}`);
+      case 'plugin':
+        void runPluginSlash(arg ?? '');
         break;
+      default: {
+        // A plugin-contributed command? Run its prompt template as a turn.
+        const pluginCommand = pluginCommands.find((c) => c.name === name);
+        if (pluginCommand) {
+          pushLog('system', `Running plugin command /${name}`);
+          void runAgent(pluginCommand.body);
+        } else {
+          pushLog('error', `Unknown command: /${name}`);
+        }
+        break;
+      }
+    }
+  }
+
+  async function runPluginSlash(argString: string): Promise<void> {
+    const args = argString.trim().split(/\s+/).filter(Boolean);
+    pushLog('system', `plugin ${args.join(' ')}…`);
+    try {
+      const lines = await runPluginCommand(args, pluginManagerRef.current);
+      for (const line of lines) pushLog('system', line);
+    } catch (error) {
+      pushLog('error', error instanceof Error ? error.message : String(error));
     }
   }
 

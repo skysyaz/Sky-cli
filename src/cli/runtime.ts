@@ -7,6 +7,7 @@ import { ToolRegistry } from '../tools/registry.js';
 import { Policy } from '../safety/policy.js';
 import { AuditLog } from '../safety/audit.js';
 import { Approver, type Prompter } from '../safety/approver.js';
+import { PluginManager, type LoadedPlugin } from '../plugins/index.js';
 
 /** Global flags shared by every command (§4.2). */
 export interface GlobalOptions {
@@ -32,6 +33,8 @@ export interface Runtime {
   cwd: string;
   color: boolean;
   json: boolean;
+  /** Plugins loaded (auto-reloaded) on this invocation. */
+  plugins: LoadedPlugin[];
 }
 
 /** Resolve the effective working directory (§4.2 --cwd). */
@@ -59,6 +62,28 @@ export function buildRuntime(options: GlobalOptions, requireExisting = true): Ru
     ? requireConfig({ cwd: resolveCwd(options), cli, logger })
     : loadConfig({ cwd: resolveCwd(options), cli, logger });
 
+  // Auto-load installed plugins on every invocation and merge their MCP servers
+  // into the effective config so the agent can call them.
+  let plugins: LoadedPlugin[] = [];
+  try {
+    plugins = new PluginManager({ logger }).load();
+    for (const plugin of plugins) {
+      for (const server of plugin.mcpServers) {
+        if (!config.mcp.servers.some((s) => s.name === server.name)) {
+          config.mcp.servers.push({ ...server, approvalMode: 'manual' });
+        }
+      }
+    }
+    if (plugins.length) {
+      logger.info('plugins.loaded', {
+        count: plugins.length,
+        names: plugins.map((p) => p.name),
+      });
+    }
+  } catch (error) {
+    logger.warn('plugins.loadFailed', { detail: (error as Error).message });
+  }
+
   return {
     config,
     logger,
@@ -67,6 +92,7 @@ export function buildRuntime(options: GlobalOptions, requireExisting = true): Ru
     cwd: resolveCwd(options),
     color: resolveColor(options),
     json: options.json ?? false,
+    plugins,
   };
 }
 

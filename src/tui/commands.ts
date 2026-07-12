@@ -27,6 +27,7 @@ export const SLASH_COMMANDS: SlashCommand[] = [
   { name: 'cost', description: 'Show token and estimated cost usage' },
   { name: 'diff', description: 'Show uncommitted changes this session' },
   { name: 'compact', description: 'Summarize old turns to reclaim context' },
+  { name: 'plugin', description: 'Manage plugins', args: ['marketplace', 'install', 'list', 'uninstall'] },
   { name: 'clear', description: 'Clear the screen (keeps session history)' },
   { name: 'exit', description: 'Save the session and quit' },
 ];
@@ -79,18 +80,23 @@ function matches(candidate: string, query: string): boolean {
  */
 export function getSuggestions(
   input: string,
-  options: { modelSuggestions?: string[] } = {},
+  options: { modelSuggestions?: string[]; extraCommands?: { name: string; description: string }[] } = {},
 ): Suggestion[] {
   const parsed = parseInput(input);
   if (!parsed.isSlash) return [];
 
   if (!parsed.hasSpace) {
-    return SLASH_COMMANDS.filter((c) => matches(c.name, parsed.command)).map((c) => ({
-      kind: 'command' as const,
-      label: `/${c.name}`,
-      description: c.description,
-      value: c.name,
-    }));
+    const builtins = SLASH_COMMANDS.map((c) => ({ name: c.name, description: c.description }));
+    // Plugin-contributed commands (e.g. `ponytail:create`) appear alongside builtins.
+    const all = [...builtins, ...(options.extraCommands ?? [])];
+    return all
+      .filter((c) => matches(c.name, parsed.command))
+      .map((c) => ({
+        kind: 'command' as const,
+        label: `/${c.name}`,
+        description: c.description,
+        value: c.name,
+      }));
   }
 
   const command = SLASH_COMMANDS.find((c) => c.name === parsed.command);

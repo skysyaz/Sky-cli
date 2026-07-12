@@ -11,6 +11,7 @@ import {
   mcpCommand,
 } from './commands.js';
 import { updateCommand } from './update.js';
+import { pluginCommand } from './plugin.js';
 
 const VERSION = '1.0.0';
 
@@ -106,6 +107,11 @@ function build(): Command {
     .command('init')
     .description('create ~/.sky/config.json with defaults')
     .action(() => run(() => initCommand(globalOptions(program))));
+
+  program
+    .command('plugin [args...]')
+    .description('manage plugins: marketplace add <owner/repo>, install <name@marketplace>, list, uninstall')
+    .action((args: string[]) => run(() => pluginCommand(args ?? [], globalOptions(program))));
 
   program
     .command('update')

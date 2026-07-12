@@ -6,6 +6,7 @@ import type { Session } from '../session/types.js';
 import type { SessionStore } from '../session/store.js';
 import type { Provider } from '../llm/types.js';
 import type { ToolRegistry } from '../tools/index.js';
+import type { LoadedPlugin } from '../plugins/index.js';
 import { App } from './App.js';
 
 export interface RunTuiOptions {
@@ -18,6 +19,7 @@ export interface RunTuiOptions {
   force?: boolean;
   yolo?: boolean;
   initialPrompt?: string;
+  plugins?: LoadedPlugin[];
 }
 
 /**

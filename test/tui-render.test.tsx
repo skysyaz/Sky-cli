@@ -1,6 +1,6 @@
 import React from 'react';
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { render } from 'ink-testing-library';
@@ -10,12 +10,13 @@ import { MockProvider } from '../src/llm/mock.js';
 import { ToolRegistry } from '../src/tools/index.js';
 import { defaultConfig } from '../src/config/index.js';
 import { nullLogger } from '../src/logging/index.js';
+import type { LoadedPlugin } from '../src/plugins/index.js';
 
 let dir: string;
 const delay = (ms = 30) => new Promise((r) => setTimeout(r, ms));
 const strip = (s: string) => s.replace(/\[[0-9;]*m/g, '');
 
-function mount() {
+function mount(plugins?: LoadedPlugin[]) {
   const store = new SessionStore({ dir: join(dir, 'sessions'), indexPath: join(dir, 'sessions.index') });
   const session = store.create({ mode: 'agent', cwd: dir, provider: 'mock', model: 'mock-1' });
   return {
@@ -29,6 +30,7 @@ function mount() {
         store,
         config: defaultConfig(),
         logger: nullLogger,
+        plugins,
       }),
     ),
   };
@@ -111,5 +113,48 @@ describe('Ink TUI', () => {
     // the selection marker moved to the second command
     expect(frame).toMatch(/❯ \/mode/);
     unmount();
+  });
+
+  it('shows plugin-contributed commands in the palette', async () => {
+    const plugins: LoadedPlugin[] = [
+      { name: 'ponytail', commands: [{ name: 'ponytail:create', description: 'Create a worktree', body: 'do it' }], mcpServers: [] },
+    ];
+    const { stdin, lastFrame, unmount } = mount(plugins);
+    await delay();
+    stdin.write('/pony');
+    await delay();
+    expect(strip(lastFrame() ?? '')).toContain('/ponytail:create');
+    unmount();
+  });
+
+  it('runs `/plugin marketplace add` then `/plugin install` from the TUI', async () => {
+    // A fixture marketplace on disk (plain dir → copy path, no network).
+    const fixture = join(dir, 'ponytail-src');
+    mkdirSync(join(fixture, '.claude-plugin'), { recursive: true });
+    writeFileSync(
+      join(fixture, '.claude-plugin', 'marketplace.json'),
+      JSON.stringify({ name: 'ponytail', plugins: [{ name: 'ponytail', source: './', description: 'wt' }] }),
+    );
+    // Point the plugin manager's storage at a temp SKY_HOME.
+    const prevHome = process.env.SKY_HOME;
+    process.env.SKY_HOME = join(dir, 'home');
+
+    const { stdin, lastFrame, unmount } = mount();
+    await delay();
+    stdin.write(`/plugin marketplace add ${fixture}`);
+    await delay();
+    stdin.write('\r');
+    await delay(250); // allow the copy to complete
+    expect(strip(lastFrame() ?? '')).toContain('Added marketplace');
+
+    stdin.write('/plugin install ponytail@ponytail');
+    await delay();
+    stdin.write('\r');
+    await delay(250);
+    expect(strip(lastFrame() ?? '')).toContain('Installed');
+
+    unmount();
+    if (prevHome === undefined) delete process.env.SKY_HOME;
+    else process.env.SKY_HOME = prevHome;
   });
 });

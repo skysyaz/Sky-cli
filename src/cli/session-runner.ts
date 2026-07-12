@@ -75,6 +75,7 @@ export async function runSession(options: RunSessionOptions): Promise<number> {
       force: global.force,
       yolo: global.yolo,
       initialPrompt: options.initialPrompt,
+      plugins: runtime.plugins,
     });
     return 0;
   } catch (error) {

@@ -41,3 +41,20 @@ export function auditDir(): string {
 export function auditLogPath(): string {
   return join(auditDir(), 'audit.log');
 }
+
+/** Plugin storage roots (§ plugin marketplace extension). */
+export function pluginsDir(): string {
+  return join(skyHome(), 'plugins');
+}
+
+export function marketplacesDir(): string {
+  return join(pluginsDir(), 'marketplaces');
+}
+
+export function installedPluginsDir(): string {
+  return join(pluginsDir(), 'installed');
+}
+
+export function pluginsStatePath(): string {
+  return join(pluginsDir(), 'plugins.json');
+}
