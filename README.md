@@ -17,11 +17,34 @@ it to.
 
 ## Install
 
-```bash
-npm install -g @sky/cli
-# or run from source:
-git clone https://github.com/skysyaz/sky-cli && cd sky-cli && npm install && npm run build
+**macOS / Linux — one-line install** (requires Node.js 20+):
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/skysyaz/Sky-cli/main/install.sh | sh
 ```
+
+This fetches the repo, builds it, and installs a `sky` launcher into
+`~/.local/bin`. Customize with environment variables — `SKY_REF` (branch/tag),
+`SKY_INSTALL_DIR`, or `SKY_BIN_DIR`:
+
+```sh
+# Install a specific branch into a custom location
+curl -fsSL https://raw.githubusercontent.com/skysyaz/Sky-cli/main/install.sh \
+  | SKY_REF=main SKY_BIN_DIR=/usr/local/bin sh
+```
+
+**From source:**
+
+```sh
+git clone https://github.com/skysyaz/Sky-cli && cd Sky-cli
+npm install && npm run build
+node dist/cli/main.js --version
+```
+
+> The `curl | sh` command reads `install.sh` from the `main` branch. Until this
+> work is merged, install from this branch by passing
+> `SKY_REF=claude/app-cli-pdf-specs-9km7tq` (and use the branch URL for the
+> script itself).
 
 ## Quick start
 
