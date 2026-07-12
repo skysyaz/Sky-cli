@@ -19,6 +19,7 @@ const OLLAMA_DEFAULT_BASE_URL = 'http://localhost:11434/v1';
 const OLLAMA_CLOUD_BASE_URL = 'https://ollama.com/v1';
 const OPENROUTER_BASE_URL = 'https://openrouter.ai/api/v1';
 const ZENMUX_BASE_URL = 'https://zenmux.ai/api/v1';
+const OPENCODE_BASE_URL = 'https://opencode.ai/api/v1';
 
 /**
  * Instantiate the provider adapter named in config (§8.2). The four first-class
@@ -77,6 +78,14 @@ export function createProvider(options: CreateProviderOptions): Provider {
         baseUrl: providerConfig?.baseUrl ?? OPENROUTER_BASE_URL,
         defaultHeaders: { 'HTTP-Referer': 'https://github.com/sky-cli/sky' },
         name: 'openrouter',
+      });
+
+    case 'opencode':
+      // OpenCode Zen AI gateway — OpenAI-compatible, free tier models available.
+      return new OpenAiAdapter({
+        apiKey: resolveApiKey('opencode', providerConfig, logger, env),
+        baseUrl: providerConfig?.baseUrl ?? OPENCODE_BASE_URL,
+        name: 'opencode',
       });
 
     default:

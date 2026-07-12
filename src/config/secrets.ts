@@ -10,7 +10,7 @@ import type { ProviderConfig } from './schema.js';
  *   4. `SKY_PROVIDERS_X_API_KEY` env var
  *   5. otherwise fail with SKY-E-1002
  *
- * `mock` and `ollama` never require a key.
+ * `mock`, `ollama`, and `opencode` never require a key.
  */
 export function resolveApiKey(
   providerName: string,
@@ -18,9 +18,9 @@ export function resolveApiKey(
   logger?: Logger,
   env: NodeJS.ProcessEnv = process.env,
 ): string {
-  // Only the mock provider and a *local* Ollama server need no key.
-  // `ollama-cloud` and `zenmux` are hosted and require an API key.
-  if (providerName === 'mock' || providerName === 'ollama') return '';
+  // Only the mock provider, local Ollama server, and OpenCode Zen need no key.
+  // `ollama-cloud`, `zenmux`, and `openrouter` are hosted and require an API key.
+  if (providerName === 'mock' || providerName === 'ollama' || providerName === 'opencode') return '';
 
   if (providerConfig?.apiKey) {
     logger?.warn('config.apiKey.literal', {
