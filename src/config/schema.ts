@@ -13,6 +13,7 @@ export const providerNameSchema = z.enum([
   'ollama-cloud',
   'openrouter',
   'zenmux',
+  'opencode',
   'mock',
 ]);
 export type ProviderName = z.infer<typeof providerNameSchema>;
