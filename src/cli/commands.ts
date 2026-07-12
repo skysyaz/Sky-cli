@@ -24,6 +24,7 @@ const PROVIDER_DEFAULTS: Record<string, { apiKeyEnv: string; model: string }> = 
   'ollama-cloud': { apiKeyEnv: 'OLLAMA_API_KEY', model: 'gpt-oss:120b' },
   openrouter: { apiKeyEnv: 'OPENROUTER_API_KEY', model: 'openai/gpt-4o' },
   zenmux: { apiKeyEnv: 'ZENMUX_API_KEY', model: 'x-ai/grok-4.5-free' },
+  opencode: { apiKeyEnv: '', model: 'deepseek-v4-flash-free' },
   mock: { apiKeyEnv: '', model: 'mock-1' },
 };
 
@@ -144,7 +145,7 @@ export async function initCommand(global: GlobalOptions): Promise<number> {
   if (interactive) {
     const rl = createInterface({ input: process.stdin, output: process.stdout });
     const p = (
-      await rl.question('Provider [openai/anthropic/ollama/ollama-cloud/openrouter/zenmux/mock] (openai): ')
+      await rl.question('Provider [openai/anthropic/ollama/ollama-cloud/openrouter/zenmux/opencode/mock] (openai): ')
     ).trim();
     rl.close();
     if (p && PROVIDER_DEFAULTS[p]) provider = p;
