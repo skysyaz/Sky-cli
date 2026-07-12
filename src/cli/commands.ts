@@ -17,7 +17,7 @@ import { runSession } from './session-runner.js';
 import { buildRuntime, type GlobalOptions, type Runtime } from './runtime.js';
 
 /** Default env-var name and model per provider, used by `sky init`. */
-const PROVIDER_DEFAULTS: Record<string, { apiKeyEnv: string; model: string }> = {
+export const PROVIDER_DEFAULTS: Record<string, { apiKeyEnv: string; model: string }> = {
   openai: { apiKeyEnv: 'OPENAI_API_KEY', model: 'gpt-4o' },
   anthropic: { apiKeyEnv: 'ANTHROPIC_API_KEY', model: 'claude-3-5-sonnet' },
   ollama: { apiKeyEnv: '', model: 'llama3.1' },

@@ -13,6 +13,7 @@ import { AgentLoop } from '../agent/loop.js';
 import { SkyError } from '../errors/index.js';
 import { writeConfig } from '../config/index.js';
 import { PluginManager, runPluginCommand, type LoadedPlugin, type PluginCommand } from '../plugins/index.js';
+import { PROVIDER_DEFAULTS } from '../cli/commands.js';
 import {
   getSuggestions,
   parseInput,
@@ -84,7 +85,15 @@ export function App(props: AppProps): React.ReactElement {
     () => (provider ? provider.tokenLimits(model).contextWindow : 128_000),
     [provider, model],
   );
-  const modelSuggestions = useMemo(() => [model, ...MODEL_SUGGESTIONS.filter((m) => m !== model)], [model]);
+  // Build model suggestions: current model + static suggestions + provider-specific default models
+  const providerDefaultModels = useMemo(
+    () => Object.values(PROVIDER_DEFAULTS).map((d) => d.model).filter((m) => m && m !== model),
+    [model],
+  );
+  const modelSuggestions = useMemo(
+    () => [model, ...MODEL_SUGGESTIONS.filter((m) => m !== model), ...providerDefaultModels],
+    [model, providerDefaultModels],
+  );
   const suggestions = busy || approval ? [] : getSuggestions(input, { modelSuggestions, extraCommands });
   const paletteOpen = suggestions.length > 0;
   const clampedSelected = suggestions.length ? Math.min(selected, suggestions.length - 1) : 0;
@@ -232,7 +241,8 @@ export function App(props: AppProps): React.ReactElement {
         if (arg && PROVIDER_NAMES.includes(arg)) {
           session.provider = arg;
           config.defaultProvider = arg as typeof config.defaultProvider;
-          const providerDefaultModel = config.providers[arg]?.defaultModel;
+          // Get default model from PROVIDER_DEFAULTS or config, with fallback logic
+          const providerDefaultModel = PROVIDER_DEFAULTS[arg]?.model || config.providers[arg]?.defaultModel;
           if (providerDefaultModel) {
             session.model = providerDefaultModel;
             setModel(providerDefaultModel);
