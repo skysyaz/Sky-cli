@@ -33,6 +33,13 @@ curl -fsSL https://raw.githubusercontent.com/skysyaz/Sky-cli/main/install.sh \
   | SKY_REF=main SKY_BIN_DIR=/usr/local/bin sh
 ```
 
+**Update an existing install:**
+
+```sh
+sky update          # pull the latest and rebuild in place
+sky update --check  # just check whether an update is available
+```
+
 **From source:**
 
 ```sh
@@ -77,6 +84,7 @@ sky --provider mock ask "what does this project do?"
 | `sky config`        | —     | `get` / `set` / `list` / `validate` configuration        |
 | `sky init`          | —     | Create `~/.sky/config.json` with defaults                |
 | `sky mcp`           | —     | Register / list / remove / test MCP tool servers         |
+| `sky update`        | —     | Update Sky to the latest version (pull + rebuild)        |
 
 ### Global flags
 

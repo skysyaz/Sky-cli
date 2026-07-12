@@ -10,6 +10,7 @@ import {
   configCommand,
   mcpCommand,
 } from './commands.js';
+import { updateCommand } from './update.js';
 
 const VERSION = '1.0.0';
 
@@ -105,6 +106,16 @@ function build(): Command {
     .command('init')
     .description('create ~/.sky/config.json with defaults')
     .action(() => run(() => initCommand(globalOptions(program))));
+
+  program
+    .command('update')
+    .alias('upgrade')
+    .description('update Sky to the latest version (pull + rebuild in place)')
+    .option('--check', 'only check whether an update is available')
+    .option('--ref <ref>', 'branch or tag to update to (default: main)')
+    .action((opts: { check?: boolean; ref?: string }) =>
+      run(() => updateCommand(opts, globalOptions(program))),
+    );
 
   program
     .command('config [action] [key] [value]')
