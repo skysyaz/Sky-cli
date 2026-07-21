@@ -16,6 +16,7 @@ export {
   hasApiKey,
   secretsPath,
   OPENCODE_FREE_MODELS,
+  isOpenCodeFreeModel,
 } from './secrets.js';
 export {
   providerAuthTag,
