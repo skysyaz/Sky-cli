@@ -28,6 +28,10 @@ const PROVIDER_DEFAULTS: Record<string, { apiKeyEnv: string; model: string }> = 
   gemini: { apiKeyEnv: 'GEMINI_API_KEY', model: 'gemini-2.0-flash' },
   deepseek: { apiKeyEnv: 'DEEPSEEK_API_KEY', model: 'deepseek-chat' },
   groq: { apiKeyEnv: 'GROQ_API_KEY', model: 'llama-3.3-70b-versatile' },
+  'qwen-web': { apiKeyEnv: 'DASHSCOPE_API_KEY', model: 'qwen-plus' },
+  'zai-web': { apiKeyEnv: 'ZAI_API_KEY', model: 'glm-4.5-flash' },
+  'kimi-web': { apiKeyEnv: 'MOONSHOT_API_KEY', model: 'kimi-k2.5' },
+  custom: { apiKeyEnv: 'SKY_CUSTOM_API_KEY', model: 'gpt-4o' },
   mock: { apiKeyEnv: '', model: 'mock-1' },
 };
 
@@ -149,7 +153,7 @@ export async function initCommand(global: GlobalOptions): Promise<number> {
     const rl = createInterface({ input: process.stdin, output: process.stdout });
     const p = (
       await rl.question(
-        'Provider [openai/anthropic/ollama/ollama-cloud/openrouter/zenmux/opencode/gemini/deepseek/groq/mock] (openai): ',
+        'Provider [openai/anthropic/ollama/ollama-cloud/openrouter/zenmux/opencode/gemini/deepseek/groq/qwen-web/zai-web/kimi-web/custom/mock] (openai): ',
       )
     ).trim();
     rl.close();
