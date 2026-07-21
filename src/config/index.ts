@@ -24,6 +24,13 @@ export {
   isKeylessProvider,
   type ProviderAuthHelp,
 } from './provider-auth.js';
+export {
+  listKeyRows,
+  formatKeysDashboard,
+  maskSecret,
+  keysHelpForProvider,
+  type KeyRow,
+} from './keys-dashboard.js';
 
 /** Overrides supplied from the command line (precedence level 5 — highest). */
 export interface CliOverrides {

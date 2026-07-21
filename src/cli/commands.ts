@@ -430,3 +430,54 @@ export async function doctorCommand(global: GlobalOptions): Promise<number> {
   process.stdout.write(lines.join('\n') + '\n');
   return issues === 0 ? 0 : 1;
 }
+
+/** `sky keys` / `sky auth` — lightweight API key dashboard (§ keys UX). */
+export async function keysCommand(
+  action: string | undefined,
+  provider: string | undefined,
+  key: string | undefined,
+  global: GlobalOptions,
+): Promise<number> {
+  const runtime = buildRuntime(global, false);
+  const { formatKeysDashboard, writeSecret, clearSecret, writeConfig } = await import('../config/index.js');
+  const act = (action ?? 'list').toLowerCase();
+
+  if (act === 'list' || act === 'ls' || act === 'status') {
+    process.stdout.write(
+      formatKeysDashboard(runtime.config.providers, process.env, runtime.config.defaultProvider) + '\n',
+    );
+    return 0;
+  }
+
+  if (act === 'set' || act === 'add') {
+    if (!provider || !key) {
+      process.stderr.write('Usage: sky keys set <provider> <api-key>\n');
+      return 64;
+    }
+    writeSecret(provider, key);
+    runtime.config.providers[provider] = {
+      ...(runtime.config.providers[provider] ?? {}),
+      apiKeyEnv:
+        runtime.config.providers[provider]?.apiKeyEnv ??
+        `${provider.toUpperCase().replace(/[^A-Z0-9]/g, '_')}_API_KEY`,
+    };
+    delete runtime.config.providers[provider].apiKey;
+    writeConfig(runtime.config);
+    process.stdout.write(`Saved key for ${provider}.\n`);
+    return 0;
+  }
+
+  if (act === 'clear' || act === 'remove' || act === 'rm') {
+    const name = provider ?? runtime.config.defaultProvider;
+    clearSecret(name);
+    if (runtime.config.providers[name]?.apiKey) {
+      delete runtime.config.providers[name].apiKey;
+      writeConfig(runtime.config);
+    }
+    process.stdout.write(`Cleared stored key for ${name}.\n`);
+    return 0;
+  }
+
+  process.stderr.write('Usage: sky keys [list|set|clear] …\n');
+  return 64;
+}

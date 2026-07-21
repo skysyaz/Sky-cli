@@ -133,18 +133,20 @@ describe('Ink TUI', () => {
       }),
     );
     await delay(60);
-    expect(strip(lastFrame() ?? '')).toContain('SKY-E-1002');
+    // Missing key auto-falls back to keyless OpenCode.
+    expect(strip(lastFrame() ?? '')).toContain('opencode');
+    expect(strip(lastFrame() ?? '')).toContain('deepseek-v4-flash-free');
     stdin.write('/provider mock');
     await delay();
     stdin.write('\r');
     await delay(60);
     const frame = strip(lastFrame() ?? '');
-    expect(frame).toContain('Provider → mock (ready)');
-    expect(frame).toMatch(/⬢ agent · mock/);
+    expect(frame).toContain('mock (ready');
+    expect(frame).toContain('mock:deepseek-v4-flash-free');
     unmount();
   });
 
-  it('sets the API key with /key and reloads the provider live', async () => {
+  it('sets the API key with /keys dashboard and switches live', async () => {
     process.env.SKY_HOME = join(dir, 'home');
     const config = defaultConfig();
     const store = new SessionStore({ dir: join(dir, 'sessions'), indexPath: join(dir, 'sessions.index') });
@@ -166,13 +168,18 @@ describe('Ink TUI', () => {
       }),
     );
     await delay(60);
-    expect(strip(lastFrame() ?? '')).toContain('SKY-E-1002');
-    stdin.write('/key sk-live-test-key');
+    expect(strip(lastFrame() ?? '')).toContain('opencode');
+    stdin.write('/keys set zenmux sk-live-test-key');
     await delay();
     stdin.write('\r');
     await delay(80);
-    expect(strip(lastFrame() ?? '')).toContain('API key saved securely for zenmux');
+    expect(strip(lastFrame() ?? '')).toContain('Saved key for zenmux');
     expect(readSecret('zenmux')).toBe('sk-live-test-key');
+    stdin.write('/provider zenmux');
+    await delay();
+    stdin.write('\r');
+    await delay(80);
+    expect(strip(lastFrame() ?? '')).toContain('zenmux (ready');
     expect(config.providers.zenmux?.apiKey).toBeUndefined();
     unmount();
     delete process.env.SKY_HOME;
@@ -212,7 +219,7 @@ describe('Ink TUI', () => {
     const { stdin, lastFrame, unmount } = render(
       React.createElement(App, {
         makeProvider: () => {
-          throw new SkyError(ErrorCode.NoApiKey, { name: 'zenmux' });
+          throw new SkyError(ErrorCode.NoApiKey, { name: 'broken', hint: '' });
         },
         registry: new ToolRegistry(),
         session,
@@ -222,16 +229,14 @@ describe('Ink TUI', () => {
       }),
     );
     await delay(60);
-    // Error is surfaced and the input box is still present (session stays open).
     const frame = strip(lastFrame() ?? '');
     expect(frame).toContain('SKY-E-1002');
     expect(frame).toContain('type / for commands');
-    // Sending a message still does not crash; the error is shown again.
     stdin.write('review');
     await delay();
     stdin.write('\r');
     await delay(60);
-    expect(strip(lastFrame() ?? '')).toContain('SKY-E-1002');
+    expect(strip(lastFrame() ?? '')).toContain('type / for commands');
     unmount();
   });
 

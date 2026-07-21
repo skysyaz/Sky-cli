@@ -103,6 +103,12 @@ export const SLASH_COMMANDS: SlashCommand[] = [
   { name: 'model', description: 'Switch model', args: MODEL_SUGGESTIONS },
   { name: 'provider', description: 'Switch LLM provider', args: PROVIDER_NAMES },
   { name: 'key', description: 'Set API key for current provider (saved to secrets file)' },
+  {
+    name: 'keys',
+    description: 'API key dashboard (list/set/clear/use)',
+    args: ['list', 'set', 'clear', 'use'],
+  },
+  { name: 'auth', description: 'Alias for /keys' },
   { name: 'status', description: 'Show session, provider, tools, skills, MCP status' },
   { name: 'cost', description: 'Show usage, or toggle status-bar cost (on|off)', args: ['on', 'off', 'toggle'] },
   { name: 'diff', description: 'Show uncommitted changes this session' },

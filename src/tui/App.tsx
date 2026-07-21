@@ -11,7 +11,7 @@ import { AuditLog } from '../safety/audit.js';
 import { Approver, type Prompter, type ApprovalAnswer, type ApprovalPromptRequest } from '../safety/approver.js';
 import { AgentLoop } from '../agent/loop.js';
 import { SkyError } from '../errors/index.js';
-import { writeConfig, writeSecret, clearSecret, providerAuthSetupCard, hasApiKey } from '../config/index.js';
+import { writeConfig, writeSecret, clearSecret, providerAuthSetupCard, hasApiKey, formatKeysDashboard, isKeylessProvider } from '../config/index.js';
 import { PluginManager, runPluginCommand, applyCommandArgs, type LoadedPlugin, type PluginCommand } from '../plugins/index.js';
 import type { Skill } from '../skills/index.js';
 import {
@@ -58,6 +58,8 @@ export function App(props: AppProps): React.ReactElement {
   const { exit } = useApp();
   const { registry, session, store, config } = props;
   const [provider, setProvider] = useState<Provider | null>(null);
+  /** Display name — must not rely on adapter.name (stale after failed switches). */
+  const [providerName, setProviderName] = useState(session.provider);
 
   const [log, setLog] = useState<LogItem[]>([]);
   const [streaming, setStreaming] = useState('');
@@ -91,8 +93,8 @@ export function App(props: AppProps): React.ReactElement {
     [provider, model],
   );
   const modelSuggestions = useMemo(
-    () => modelsForProvider(session.provider, model),
-    [session.provider, model],
+    () => modelsForProvider(providerName, model),
+    [providerName, model],
   );
   const providerSuggestions = useMemo(
     () => providersForPalette(config.providers),
@@ -105,7 +107,7 @@ export function App(props: AppProps): React.ReactElement {
           modelSuggestions,
           providerSuggestions,
           extraCommands,
-          provider: session.provider,
+          provider: providerName,
         });
   const paletteOpen = suggestions.length > 0;
   const clampedSelected = suggestions.length ? Math.min(selected, suggestions.length - 1) : 0;
@@ -119,28 +121,79 @@ export function App(props: AppProps): React.ReactElement {
     new Promise<ApprovalAnswer>((resolve) => setApproval({ request, resolve }));
 
   /** Build the provider for a given name, updating state; shows errors in-UI. */
-  function buildProvider(name: string): Provider | null {
+  function buildProvider(name: string, opts: { quiet?: boolean } = {}): Provider | null {
     try {
       const created = props.makeProvider(name);
       setProvider(created);
       return created;
     } catch (error) {
       setProvider(null);
+      if (opts.quiet) return null;
       const skyError = SkyError.from(error);
       // Rich setup card for *-web / custom — avoid a cryptic one-liner loop.
       if (skyError.code === 'SKY-E-1002') {
         pushLog('error', skyError.toUserMessage());
         pushLog('system', providerAuthSetupCard(name));
       } else {
-        pushLog('error', `${skyError.toUserMessage()} — set a key with /key <value> or switch with /provider.`);
+        pushLog('error', `${skyError.toUserMessage()} — set a key with /key <value> or /keys.`);
       }
       return null;
     }
   }
 
+  /** Switch provider + default model, persist, rebuild adapter. */
+  function switchProvider(target: string, opts: { announce?: boolean } = {}): boolean {
+    const announce = opts.announce !== false;
+    setProvider(null); // drop stale adapter so status never shows the old name
+    session.provider = target;
+    setProviderName(target);
+    config.defaultProvider = target;
+
+    const providerDefaultModel = config.providers[target]?.defaultModel;
+    if (providerDefaultModel) {
+      session.model = providerDefaultModel;
+      setModel(providerDefaultModel);
+    } else if (target === 'qwen-web') {
+      session.model = 'qwen-plus';
+      setModel('qwen-plus');
+    } else if (target === 'zai-web') {
+      session.model = 'glm-4.5-flash';
+      setModel('glm-4.5-flash');
+    } else if (target === 'kimi-web') {
+      session.model = 'kimi-k2.5';
+      setModel('kimi-k2.5');
+    } else if (target === 'opencode') {
+      session.model = 'deepseek-v4-flash-free';
+      setModel('deepseek-v4-flash-free');
+    }
+
+    store.save(session);
+    try {
+      writeConfig(config);
+    } catch (error) {
+      pushLog('error', `Could not persist provider: ${(error as Error).message}`);
+    }
+
+    const built = buildProvider(target);
+    if (announce) {
+      if (built) {
+        pushLog(
+          'system',
+          target === 'opencode'
+            ? `Provider → opencode (keyless free · model ${session.model})`
+            : `Provider → ${target} (ready · model ${session.model})`,
+        );
+      } else if (!hasApiKey(target, config.providers[target])) {
+        pushLog('system', `Provider → ${target} (waiting for key · /keys set ${target} <key>)`);
+      }
+    }
+    return Boolean(built);
+  }
+
   /** Reuse the current provider or build one for the active session provider. */
   function ensureProvider(): Provider | null {
-    return provider ?? buildProvider(session.provider);
+    if (provider && provider.name === providerName) return provider;
+    return buildProvider(providerName);
   }
 
   async function runAgent(prompt: string): Promise<void> {
@@ -221,9 +274,10 @@ export function App(props: AppProps): React.ReactElement {
           'system',
           [
             'Sky commands',
-            '  /help /status /mode /model /provider /key /cost /diff /plugin /compact /clear /exit',
-            '  /provider <name>   switch LLM provider (openai, anthropic, gemini, …)',
-            '  /key <api-key>     save key to ~/.sky/secrets.json (mode 0600) and reload',
+            '  /help /status /keys /mode /model /provider /key /cost /diff /plugin /compact /clear /exit',
+            '  /provider free     keyless OpenCode free models (no API key)',
+            '  /keys              API key dashboard — list / set / clear / use',
+            '  /key <api-key>     save key for current provider (~/.sky/secrets.json)',
             '  /key clear         remove the stored key for the current provider',
             '  /cost [on|off]     show usage; on/off keeps ~$cost in the status bar',
             '  /plugin marketplace add <owner/repo> · install <name@market> · search <q>',
@@ -254,7 +308,7 @@ export function App(props: AppProps): React.ReactElement {
           session.model = arg;
           store.save(session);
           setModel(arg);
-          buildProvider(session.provider); // rebuild so token limits/pricing update
+          buildProvider(providerName); // rebuild so token limits/pricing update
           pushLog('system', `Model → ${arg}`);
         } else {
           pushLog('system', 'Usage: /model <name>');
@@ -263,49 +317,18 @@ export function App(props: AppProps): React.ReactElement {
       case 'provider': {
         const available = providersForPalette(config.providers);
         // `/provider free` → keyless OpenCode Zen free models.
-        const target = arg === 'free' ? 'opencode' : arg;
-        if (target && available.includes(target)) {
+        const target = !arg ? '' : arg.trim() === 'free' ? 'opencode' : arg.trim();
+        if (target && (available.includes(target) || available.includes(arg!.trim()) || target === 'opencode')) {
           if (target === 'custom' && !config.providers.custom?.baseUrl) {
             pushLog('system', providerAuthSetupCard('custom'));
             break;
           }
-          session.provider = target;
-          config.defaultProvider = target;
-          const providerDefaultModel = config.providers[target]?.defaultModel;
-          if (providerDefaultModel) {
-            session.model = providerDefaultModel;
-            setModel(providerDefaultModel);
-          } else if (target === 'qwen-web') {
-            session.model = 'qwen-plus';
-            setModel('qwen-plus');
-          } else if (target === 'zai-web') {
-            session.model = 'glm-4.5-flash';
-            setModel('glm-4.5-flash');
-          } else if (target === 'kimi-web') {
-            session.model = 'kimi-k2.5';
-            setModel('kimi-k2.5');
-          } else if (target === 'opencode') {
-            session.model = 'deepseek-v4-flash-free';
-            setModel('deepseek-v4-flash-free');
-          }
-          store.save(session);
-          try {
-            writeConfig(config);
-          } catch (error) {
-            pushLog('error', `Could not persist provider: ${(error as Error).message}`);
-          }
-          const built = buildProvider(target);
-          if (built) {
-            pushLog('system', `Provider → ${target} (ready)`);
-          } else if (!hasApiKey(target, config.providers[target])) {
-            // buildProvider already printed the setup card for SKY-E-1002
-            pushLog('system', `Provider → ${target} (waiting for /key)`);
-          }
+          switchProvider(target);
         } else {
           pushLog(
             'system',
             [
-              `Current provider: ${session.provider}.`,
+              `Current provider: ${providerName}.`,
               'Usage: /provider <name>   or   /provider free  (keyless OpenCode)',
               `Available: ${available.join(', ')}`,
             ].join('\n'),
@@ -313,51 +336,54 @@ export function App(props: AppProps): React.ReactElement {
         }
         break;
       }
+      case 'keys':
+      case 'auth': {
+        void runKeysSlash(arg ?? '');
+        break;
+      }
       case 'key': {
         const value = arg?.trim();
         if (!value) {
-          pushLog('system', 'Usage: /key <api-key>   or   /key clear');
+          pushLog('system', 'Usage: /key <api-key>  ·  /key clear  ·  or open /keys');
           break;
         }
-        const providerName = session.provider;
+        const name = providerName;
         if (value.toLowerCase() === 'clear') {
-          clearSecret(providerName);
-          if (config.providers[providerName]?.apiKey) {
-            delete config.providers[providerName].apiKey;
+          clearSecret(name);
+          if (config.providers[name]?.apiKey) {
+            delete config.providers[name].apiKey;
             try {
               writeConfig(config);
             } catch {
               /* ignore */
             }
           }
-          pushLog('system', `Cleared stored key for ${providerName}.`);
-          buildProvider(providerName);
+          pushLog('system', `Cleared stored key for ${name}.`);
+          buildProvider(name);
           break;
         }
         // Prefer secrets file (0600) — never write plaintext apiKey into config.json.
         try {
-          writeSecret(providerName, value);
-          // Ensure config points at a conventional env name for documentation.
+          writeSecret(name, value);
           const envHint =
-            config.providers[providerName]?.apiKeyEnv ??
-            `${providerName.toUpperCase().replace(/[^A-Z0-9]/g, '_')}_API_KEY`;
-          config.providers[providerName] = {
-            ...(config.providers[providerName] ?? {}),
-            apiKeyEnv: config.providers[providerName]?.apiKeyEnv ?? envHint,
+            config.providers[name]?.apiKeyEnv ??
+            `${name.toUpperCase().replace(/[^A-Z0-9]/g, '_')}_API_KEY`;
+          config.providers[name] = {
+            ...(config.providers[name] ?? {}),
+            apiKeyEnv: config.providers[name]?.apiKeyEnv ?? envHint,
           };
-          // Strip any previously stored plaintext key.
-          delete config.providers[providerName].apiKey;
+          delete config.providers[name].apiKey;
           writeConfig(config);
         } catch (error) {
           pushLog('error', `Could not persist key: ${(error as Error).message}`);
           break;
         }
-        const built = buildProvider(providerName);
+        const built = buildProvider(name);
         pushLog(
           'system',
           built
-            ? `API key saved securely for ${providerName}. Ready — send your message.`
-            : `Key saved but ${providerName} still failed to initialize.`,
+            ? `API key saved securely for ${name}. Ready — send your message. (/keys to manage)`
+            : `Key saved but ${name} still failed to initialize.`,
         );
         break;
       }
@@ -369,7 +395,7 @@ export function App(props: AppProps): React.ReactElement {
         pushLog(
           'system',
           [
-            `session ${session.id.slice(0, 8)} · ${mode} · ${session.provider}:${model}`,
+            `session ${session.id.slice(0, 8)} · ${mode} · ${providerName}:${model}`,
             `cwd ${session.cwd}`,
             `tools ${toolCount} · plugins ${pluginCount} · skills ${skillCount} · mcp servers ${mcpCount}`,
             `tokens ${session.tokenUsage.input} in / ${session.tokenUsage.output} out · ~$${session.tokenUsage.estimatedCostUsd.toFixed(4)}`,
@@ -480,6 +506,77 @@ export function App(props: AppProps): React.ReactElement {
       pushLog('error', `Could not persist plugin MCP servers: ${(error as Error).message}`);
     }
     return loaded;
+  }
+
+  async function runKeysSlash(argString: string): Promise<void> {
+    const parts = argString.trim().split(/\s+/).filter(Boolean);
+    const action = (parts[0] ?? 'list').toLowerCase();
+
+    if (action === 'list' || action === 'ls' || action === 'status') {
+      pushLog('system', formatKeysDashboard(config.providers, process.env, providerName));
+      return;
+    }
+
+    if (action === 'set' || action === 'add') {
+      const name = parts[1];
+      const key = parts.slice(2).join(' ').trim();
+      if (!name || !key) {
+        pushLog('system', 'Usage: /keys set <provider> <api-key>');
+        return;
+      }
+      try {
+        writeSecret(name, key);
+        config.providers[name] = {
+          ...(config.providers[name] ?? {}),
+          apiKeyEnv:
+            config.providers[name]?.apiKeyEnv ??
+            `${name.toUpperCase().replace(/[^A-Z0-9]/g, '_')}_API_KEY`,
+        };
+        delete config.providers[name].apiKey;
+        writeConfig(config);
+        pushLog('system', `Saved key for ${name} (${key.slice(0, 4)}…).`);
+        if (name === providerName) buildProvider(name);
+        else pushLog('system', `Switch to it with /keys use ${name}  or  /provider ${name}`);
+      } catch (error) {
+        pushLog('error', `Could not save key: ${(error as Error).message}`);
+      }
+      return;
+    }
+
+    if (action === 'clear' || action === 'remove' || action === 'rm') {
+      const name = parts[1] ?? providerName;
+      clearSecret(name);
+      if (config.providers[name]?.apiKey) {
+        delete config.providers[name].apiKey;
+        try {
+          writeConfig(config);
+        } catch {
+          /* ignore */
+        }
+      }
+      pushLog('system', `Cleared stored key for ${name}.`);
+      if (name === providerName) buildProvider(name);
+      return;
+    }
+
+    if (action === 'use' || action === 'switch') {
+      const name = parts[1] === 'free' ? 'opencode' : parts[1];
+      if (!name) {
+        pushLog('system', 'Usage: /keys use <provider|free>');
+        return;
+      }
+      switchProvider(name);
+      return;
+    }
+
+    pushLog(
+      'system',
+      [
+        formatKeysDashboard(config.providers, process.env, providerName),
+        '',
+        'Usage: /keys [list|set|clear|use] …',
+      ].join('\n'),
+    );
   }
 
   async function runPluginSlash(argString: string): Promise<void> {
@@ -637,9 +734,19 @@ export function App(props: AppProps): React.ReactElement {
   });
 
   useEffect(() => {
-    // Surface a provider/config error (e.g. missing API key) immediately, so the
-    // status is clear without the user having to send a message first.
-    ensureProvider();
+    // If the session is stuck on a provider with no key (e.g. qwen-web), fall
+    // back to keyless OpenCode so the user can chat immediately.
+    const needsKey = !isKeylessProvider(providerName) && !hasApiKey(providerName, config.providers[providerName]);
+    if (needsKey) {
+      pushLog(
+        'system',
+        `${providerName} needs an API key. Switching to keyless OpenCode free models.\n` +
+          `Use /keys to add a key later, or /provider ${providerName} after /keys set ${providerName} <key>.`,
+      );
+      switchProvider('opencode', { announce: true });
+    } else {
+      ensureProvider();
+    }
     if (props.initialPrompt) {
       pushLog('user', props.initialPrompt);
       void runAgent(props.initialPrompt);
@@ -667,7 +774,7 @@ export function App(props: AppProps): React.ReactElement {
 
       <StatusBar
         mode={mode}
-        provider={provider?.name ?? session.provider}
+        provider={providerName}
         model={model}
         pct={pct}
         files={filesEdited}

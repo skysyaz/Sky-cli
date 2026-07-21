@@ -10,6 +10,7 @@ import {
   configCommand,
   mcpCommand,
   doctorCommand,
+  keysCommand,
 } from './commands.js';
 import { updateCommand } from './update.js';
 import { pluginCommand } from './plugin.js';
@@ -128,6 +129,14 @@ function build(): Command {
     .option('--ref <ref>', 'branch or tag to update to (default: main)')
     .action((opts: { check?: boolean; ref?: string }) =>
       run(() => updateCommand(opts, globalOptions(program))),
+    );
+
+  program
+    .command('keys [action] [provider] [key...]')
+    .alias('auth')
+    .description('API key dashboard: list, set <provider> <key>, clear <provider>')
+    .action((action: string | undefined, provider: string | undefined, keyParts: string[] | undefined) =>
+      run(() => keysCommand(action, provider, keyParts?.join(' '), globalOptions(program))),
     );
 
   program
