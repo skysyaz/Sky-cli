@@ -168,6 +168,9 @@ sky -p gemini "…"
 sky -p deepseek "…"
 sky -p groq -m llama-3.3-70b-versatile "…"
 sky -p opencode "…"   # free models (e.g. deepseek-v4-flash-free) need no key
+sky -p qwen-web -m qwen-plus "…"
+sky -p zai-web -m glm-4.5-flash "…"
+sky -p kimi-web -m kimi-k2.5 "…"
 sky -p mock ask "offline smoke test"
 ```
 
@@ -175,6 +178,22 @@ OpenCode Zen free models (`deepseek-v4-flash-free`, `mimo-v2.5-free`, …) use a
 public guest token automatically. For **paid** Zen models, set
 `OPENCODE_API_KEY` or run `/key <value>` after signing in at
 [opencode.ai/auth](https://opencode.ai/auth).
+
+**Qwen / Z.AI / Kimi (“-web” providers)** use each vendor’s official
+OpenAI-compatible API (not browser-cookie scrapers). Create a free-tier key on
+their site, then:
+
+```text
+/provider qwen-web
+/key sk-…
+/model qwen-plus
+```
+
+| Provider | Key env | Default endpoint |
+| --- | --- | --- |
+| `qwen-web` | `DASHSCOPE_API_KEY` | `https://dashscope-intl.aliyuncs.com/compatible-mode/v1` |
+| `zai-web` | `ZAI_API_KEY` | `https://api.z.ai/api/paas/v4` |
+| `kimi-web` | `MOONSHOT_API_KEY` | `https://api.moonshot.ai/v1` |
 
 Or switch live:
 
@@ -185,6 +204,18 @@ Or switch live:
 
 ### Custom OpenAI-compatible endpoint
 
+**Option A — built-in `custom` provider**
+
+```bash
+sky config set providers.custom.baseUrl https://llm.example.com/v1
+sky config set providers.custom.defaultModel my-model
+# then in TUI:
+# /provider custom
+# /key <api-key>
+```
+
+**Option B — any name with a `baseUrl`**
+
 ```bash
 sky config set providers.myllm.baseUrl https://llm.example.com/v1
 sky config set providers.myllm.apiKeyEnv MYLLM_API_KEY
@@ -193,6 +224,8 @@ sky config set defaultProvider myllm
 export MYLLM_API_KEY=...
 sky "hello"
 ```
+
+Named customs with a `baseUrl` also appear in the `/provider` palette.
 
 ---
 

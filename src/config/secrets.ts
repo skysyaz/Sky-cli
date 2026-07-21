@@ -74,6 +74,10 @@ const WELL_KNOWN_ENV: Record<string, string> = {
   gemini: 'GEMINI_API_KEY',
   deepseek: 'DEEPSEEK_API_KEY',
   groq: 'GROQ_API_KEY',
+  'qwen-web': 'DASHSCOPE_API_KEY',
+  'zai-web': 'ZAI_API_KEY',
+  'kimi-web': 'MOONSHOT_API_KEY',
+  custom: 'SKY_CUSTOM_API_KEY',
 };
 
 /** Path to the chmod-0600 secrets file (never world-readable). */

@@ -56,6 +56,10 @@ export const MODELS_BY_PROVIDER: Record<string, string[]> = {
   gemini: ['gemini-2.0-flash', 'gemini-2.5-pro', 'gemini-2.5-flash'],
   deepseek: ['deepseek-chat', 'deepseek-reasoner'],
   groq: ['llama-3.3-70b-versatile', 'llama-3.1-8b-instant'],
+  'qwen-web': ['qwen-plus', 'qwen-turbo', 'qwen-max', 'qwen3-coder-plus'],
+  'zai-web': ['glm-4.5-flash', 'glm-5', 'glm-4.7', 'glm-4.5'],
+  'kimi-web': ['kimi-k2.5', 'moonshot-v1-auto', 'kimi-latest', 'moonshot-v1-128k'],
+  custom: [],
   mock: ['mock-1'],
 };
 
@@ -71,8 +75,26 @@ export const PROVIDER_NAMES = [
   'gemini',
   'deepseek',
   'groq',
+  'qwen-web',
+  'zai-web',
+  'kimi-web',
+  'custom',
   'mock',
 ];
+
+/**
+ * Palette list for `/provider`: built-ins plus any user-defined
+ * `providers.<name>` entries that have a `baseUrl` (OpenAI-compatible).
+ */
+export function providersForPalette(
+  configured?: Record<string, { baseUrl?: string } | undefined>,
+): string[] {
+  const extra = Object.entries(configured ?? {})
+    .filter(([, cfg]) => Boolean(cfg?.baseUrl))
+    .map(([name]) => name)
+    .filter((name) => !PROVIDER_NAMES.includes(name));
+  return [...PROVIDER_NAMES, ...extra.sort()];
+}
 
 export const SLASH_COMMANDS: SlashCommand[] = [
   { name: 'help', description: 'Show keybindings and commands' },
@@ -176,6 +198,7 @@ export function getSuggestions(
   input: string,
   options: {
     modelSuggestions?: string[];
+    providerSuggestions?: string[];
     extraCommands?: { name: string; description: string }[];
     provider?: string;
   } = {},
@@ -216,9 +239,26 @@ export function getSuggestions(
       }));
   }
 
+  if (command.name === 'provider') {
+    const args = options.providerSuggestions ?? command.args;
+    return args
+      .filter((a) => matches(a, parsed.arg))
+      .map((a) => ({ kind: 'arg' as const, label: a, description: providerTag(a), value: a }));
+  }
+
   return command.args
     .filter((a) => matches(a, parsed.arg))
     .map((a) => ({ kind: 'arg' as const, label: a, description: '', value: a }));
+}
+
+/** Short tag for a provider in the `/provider` palette. */
+export function providerTag(name: string): string {
+  if (name === 'opencode') return 'free guest';
+  if (name === 'custom') return 'your baseUrl';
+  if (name.endsWith('-web')) return 'free-tier API';
+  if (name === 'ollama') return 'local';
+  if (name === 'mock') return 'offline';
+  return '';
 }
 
 /**

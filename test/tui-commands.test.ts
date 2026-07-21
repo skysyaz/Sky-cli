@@ -65,6 +65,20 @@ describe('palette suggestions (§5.5)', () => {
   it('offers on/off/toggle for /cost', () => {
     expect(getSuggestions('/cost ').map((x) => x.value)).toEqual(['on', 'off', 'toggle']);
   });
+  it('lists qwen-web, zai-web, kimi-web, and custom in /provider', () => {
+    const values = getSuggestions('/provider ').map((x) => x.value);
+    expect(values).toEqual(expect.arrayContaining(['qwen-web', 'zai-web', 'kimi-web', 'custom']));
+  });
+  it('merges configured custom providers into the palette', async () => {
+    const { providersForPalette } = await import('../src/tui/commands.js');
+    const list = providersForPalette({
+      myllm: { baseUrl: 'https://llm.example.com/v1' },
+      orphan: {},
+    });
+    expect(list).toContain('custom');
+    expect(list).toContain('myllm');
+    expect(list).not.toContain('orphan');
+  });
 });
 
 describe('modelsForProvider / modelTag', () => {

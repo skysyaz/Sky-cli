@@ -20,7 +20,7 @@ import {
   SLASH_COMMANDS,
   modelsForProvider,
   paletteWindow,
-  PROVIDER_NAMES,
+  providersForPalette,
   type Suggestion,
 } from './commands.js';
 
@@ -94,10 +94,19 @@ export function App(props: AppProps): React.ReactElement {
     () => modelsForProvider(session.provider, model),
     [session.provider, model],
   );
+  const providerSuggestions = useMemo(
+    () => providersForPalette(config.providers),
+    [config.providers],
+  );
   const suggestions =
     busy || approval
       ? []
-      : getSuggestions(input, { modelSuggestions, extraCommands, provider: session.provider });
+      : getSuggestions(input, {
+          modelSuggestions,
+          providerSuggestions,
+          extraCommands,
+          provider: session.provider,
+        });
   const paletteOpen = suggestions.length > 0;
   const clampedSelected = suggestions.length ? Math.min(selected, suggestions.length - 1) : 0;
 
@@ -245,22 +254,60 @@ export function App(props: AppProps): React.ReactElement {
           pushLog('system', 'Usage: /model <name>');
         }
         break;
-      case 'provider':
-        if (arg && PROVIDER_NAMES.includes(arg)) {
+      case 'provider': {
+        const available = providersForPalette(config.providers);
+        if (arg && available.includes(arg)) {
+          if (arg === 'custom' && !config.providers.custom?.baseUrl) {
+            pushLog(
+              'system',
+              [
+                'Provider "custom" needs a base URL first:',
+                '  sky config set providers.custom.baseUrl https://llm.example.com/v1',
+                '  sky config set providers.custom.defaultModel my-model',
+                '  /provider custom',
+                '  /key <api-key>',
+                'Or add any name: sky config set providers.myllm.baseUrl https://…/v1',
+              ].join('\n'),
+            );
+            break;
+          }
           session.provider = arg;
-          config.defaultProvider = arg as typeof config.defaultProvider;
+          config.defaultProvider = arg;
           const providerDefaultModel = config.providers[arg]?.defaultModel;
           if (providerDefaultModel) {
             session.model = providerDefaultModel;
             setModel(providerDefaultModel);
+          } else if (arg === 'qwen-web') {
+            session.model = 'qwen-plus';
+            setModel('qwen-plus');
+          } else if (arg === 'zai-web') {
+            session.model = 'glm-4.5-flash';
+            setModel('glm-4.5-flash');
+          } else if (arg === 'kimi-web') {
+            session.model = 'kimi-k2.5';
+            setModel('kimi-k2.5');
           }
           store.save(session);
+          try {
+            writeConfig(config);
+          } catch (error) {
+            pushLog('error', `Could not persist provider: ${(error as Error).message}`);
+          }
           const built = buildProvider(arg);
-          pushLog('system', `Provider → ${arg}${built ? ' (ready)' : ' — set a key with /key <value>'}`);
+          pushLog(
+            'system',
+            built
+              ? `Provider → ${arg} (ready)`
+              : `Provider → ${arg} — set a key with /key <value>`,
+          );
         } else {
-          pushLog('system', `Current provider: ${session.provider}. Usage: /provider <${PROVIDER_NAMES.join('|')}>`);
+          pushLog(
+            'system',
+            `Current provider: ${session.provider}. Usage: /provider <name>\nAvailable: ${available.join(', ')}`,
+          );
         }
         break;
+      }
       case 'key': {
         const value = arg?.trim();
         if (!value) {

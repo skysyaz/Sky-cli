@@ -23,6 +23,12 @@ const OPENCODE_BASE_URL = 'https://opencode.ai/zen/v1';
 const GEMINI_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta/openai/';
 const DEEPSEEK_BASE_URL = 'https://api.deepseek.com/v1';
 const GROQ_BASE_URL = 'https://api.groq.com/openai/v1';
+/** DashScope OpenAI-compatible (intl). Override with providers.qwen-web.baseUrl for CN. */
+const QWEN_WEB_BASE_URL = 'https://dashscope-intl.aliyuncs.com/compatible-mode/v1';
+/** Z.AI (GLM) OpenAI-compatible. */
+const ZAI_WEB_BASE_URL = 'https://api.z.ai/api/paas/v4';
+/** Moonshot / Kimi OpenAI-compatible (global). */
+const KIMI_WEB_BASE_URL = 'https://api.moonshot.ai/v1';
 
 /**
  * Instantiate the provider adapter named in config (§8.2). OpenAI-compatible
@@ -115,8 +121,46 @@ export function createProvider(options: CreateProviderOptions): Provider {
         name: 'groq',
       });
 
+    case 'qwen-web':
+      // Alibaba DashScope compatible-mode (Qwen). Free-tier key from Model Studio.
+      return new OpenAiAdapter({
+        apiKey: resolveApiKey('qwen-web', providerConfig, logger, env),
+        baseUrl: providerConfig?.baseUrl ?? QWEN_WEB_BASE_URL,
+        name: 'qwen-web',
+      });
+
+    case 'zai-web':
+      // Z.AI / GLM OpenAI-compatible API (free-tier key from z.ai).
+      return new OpenAiAdapter({
+        apiKey: resolveApiKey('zai-web', providerConfig, logger, env),
+        baseUrl: providerConfig?.baseUrl ?? ZAI_WEB_BASE_URL,
+        name: 'zai-web',
+      });
+
+    case 'kimi-web':
+      // Moonshot Kimi OpenAI-compatible API (free-tier key from platform.moonshot.ai).
+      return new OpenAiAdapter({
+        apiKey: resolveApiKey('kimi-web', providerConfig, logger, env),
+        baseUrl: providerConfig?.baseUrl ?? KIMI_WEB_BASE_URL,
+        name: 'kimi-web',
+      });
+
+    case 'custom':
+      // User-defined OpenAI-compatible endpoint — requires providers.custom.baseUrl.
+      if (!providerConfig?.baseUrl) {
+      throw new SkyError(ErrorCode.UnknownProvider, {
+          name: 'custom',
+          hint: ' — set providers.custom.baseUrl first (sky config set providers.custom.baseUrl https://…/v1)',
+        });
+      }
+      return new OpenAiAdapter({
+        apiKey: resolveApiKey('custom', providerConfig, logger, env),
+        baseUrl: providerConfig.baseUrl,
+        name: 'custom',
+      });
+
     default:
-      // Custom OpenAI-compatible endpoint: providers.<name> with baseUrl + key.
+      // Named OpenAI-compatible endpoint: providers.<name> with baseUrl + key.
       if (providerConfig?.baseUrl) {
         return new OpenAiAdapter({
           apiKey: resolveApiKey(provider, providerConfig, logger, env),
@@ -124,6 +168,6 @@ export function createProvider(options: CreateProviderOptions): Provider {
           name: provider,
         });
       }
-      throw new SkyError(ErrorCode.UnknownProvider, { name: provider });
+      throw new SkyError(ErrorCode.UnknownProvider, { name: provider, hint: '' });
   }
 }
