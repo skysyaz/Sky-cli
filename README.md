@@ -131,7 +131,7 @@ When stdin is a TTY, Sky opens an Ink TUI:
 | `/clear` | Clear the screen (keeps history) |
 | `/exit` | Save and quit |
 
-Plugin slash commands (e.g. `/ponytail:create`) appear in the same palette.
+Plugin slash commands (e.g. `/ponytail`, `/ponytail-review`, or namespaced `/ponytail:ponytail`) appear in the same palette. Sky loads `commands/*.md` and Claude-style `commands/*.toml`.
 
 ### Sessions
 
