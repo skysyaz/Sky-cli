@@ -4,4 +4,5 @@
  */
 export * from './types.js';
 export * from './store.js';
+export * from './compact.js';
 export { migrateSession, type Migration } from './migrations.js';

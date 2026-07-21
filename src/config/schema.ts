@@ -138,8 +138,16 @@ export type TuiConfig = z.infer<typeof tuiSchema>;
 // A.5 sessions.*
 const sessionsSchema = z
   .object({
+    /** Proactively compact history before / on context overflow (default on). */
     autoCompact: z.boolean().default(true),
-    autoCompactThreshold: z.number().int().positive().default(50_000),
+    /** Cumulative session tokens that trigger a compact (fallback trigger). */
+    autoCompactThreshold: z.number().int().positive().default(30_000),
+    /**
+     * Compact when estimated history tokens reach this fraction of the model's
+     * usable context budget (contextWindow − maxOutput − margin). Keeps long
+     * sessions alive on small free-tier windows.
+     */
+    autoCompactRatio: z.number().min(0.2).max(0.95).default(0.55),
     retentionDays: z.number().int().positive().default(90),
     budgetUsd: z.number().nonnegative().optional(),
   })

@@ -148,7 +148,9 @@ Started automatically when your terminal is interactive (not `--json`).
 /cost on                         # always show ~$cost in the status bar
 /cost off                        # hide status-bar cost
 /cost toggle
-/compact                         # drop old turns
+/compact                         # drop old turns (auto-compact also runs on fill/overflow)
+/new                             # fresh session — previous stays on disk (`sky resume …`)
+/reset                           # alias for /new
 /plugin marketplace add owner/repo
 /plugin install name@marketplace
 /plugin list
@@ -156,6 +158,9 @@ Started automatically when your terminal is interactive (not `--json`).
 /exit
 ```
 
+Long sessions stay usable: Sky auto-compacts when estimated history fills ~55% of the
+model budget (or past `sessions.autoCompactThreshold`), and again if a turn still
+hits the context limit. Use `/new` anytime you want a clean slate without quitting.
 ---
 
 ## 4. Choosing a provider

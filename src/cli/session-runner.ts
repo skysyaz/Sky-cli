@@ -2,6 +2,7 @@ import { createInterface } from 'node:readline/promises';
 import chalk from 'chalk';
 import { SkyError } from '../errors/index.js';
 import type { Mode, Session } from '../session/types.js';
+import { compactSessionMessages } from '../session/compact.js';
 import { AgentLoop } from '../agent/loop.js';
 import { Policy } from '../safety/policy.js';
 import { renderStream } from './render.js';
@@ -55,7 +56,8 @@ async function runTurn(options: RunSessionOptions, prompt: string | undefined): 
  * the user exits (§4.3, §5.2).
  */
 export async function runSession(options: RunSessionOptions): Promise<number> {
-  const { runtime, global, session } = options;
+  const { runtime, global } = options;
+  let session = options.session;
 
   const oneShot = options.oneShot || global.json || !process.stdin.isTTY;
   if (oneShot) {
@@ -101,7 +103,7 @@ export async function runSession(options: RunSessionOptions): Promise<number> {
   // Run the initial prompt first if provided (errors stay in-session).
   if (options.initialPrompt) {
     try {
-      await runTurn(options, options.initialPrompt);
+      await runTurn({ ...options, session }, options.initialPrompt);
     } catch (error) {
       process.stderr.write(c.gray(`${SkyError.from(error).toUserMessage()}\n`));
     }
@@ -113,13 +115,14 @@ export async function runSession(options: RunSessionOptions): Promise<number> {
       const line = (await rl.question(c.cyan('> '))).trim();
       if (!line) continue;
       if (line.startsWith('/')) {
-        const done = handleSlashCommand(line, session, runtime);
-        if (done) break;
+        const result = handleSlashCommand(line, session, runtime);
+        if (result.session) session = result.session;
+        if (result.done) break;
         continue;
       }
       // A turn error (bad key, provider down, …) must never exit the session.
       try {
-        await runTurn(options, line);
+        await runTurn({ ...options, session }, line);
       } catch (error) {
         const skyError = SkyError.from(error);
         process.stderr.write(c.gray(`${skyError.toUserMessage()}\n`));
@@ -133,13 +136,17 @@ export async function runSession(options: RunSessionOptions): Promise<number> {
   return 0;
 }
 
-/** Handle a slash command (§5.5). Returns true if the loop should exit. */
-function handleSlashCommand(line: string, session: Session, runtime: Runtime): boolean {
+/** Handle a slash command (§5.5). Returns whether to exit and an optional new session. */
+function handleSlashCommand(
+  line: string,
+  session: Session,
+  runtime: Runtime,
+): { done: boolean; session?: Session } {
   const [command, ...rest] = line.slice(1).split(/\s+/);
   switch (command) {
     case 'exit':
     case 'quit':
-      return true;
+      return { done: true };
     case 'help':
       process.stdout.write(
         [
@@ -151,12 +158,14 @@ function handleSlashCommand(line: string, session: Session, runtime: Runtime): b
           '/status               show session status',
           '/cost                 show token & cost usage',
           '/diff                 (agent mode) show uncommitted changes',
+          '/compact              trim old turns to reclaim context',
+          '/new                  start a fresh session',
           '/clear                clear the screen',
           '/exit                 save and quit',
           '',
         ].join('\n'),
       );
-      return false;
+      return { done: false };
     case 'mode': {
       const next = rest[0];
       if (next === 'agent' || next === 'plan' || next === 'ask') {
@@ -166,7 +175,7 @@ function handleSlashCommand(line: string, session: Session, runtime: Runtime): b
       } else {
         process.stdout.write('Usage: /mode [agent|plan|ask]\n');
       }
-      return false;
+      return { done: false };
     }
     case 'model':
       if (rest[0]) {
@@ -174,17 +183,50 @@ function handleSlashCommand(line: string, session: Session, runtime: Runtime): b
         runtime.store.save(session);
         process.stdout.write(`Model set to ${rest[0]}.\n`);
       }
-      return false;
+      return { done: false };
     case 'cost':
       process.stdout.write(
         `Tokens: ${session.tokenUsage.input} in / ${session.tokenUsage.output} out · ~$${session.tokenUsage.estimatedCostUsd.toFixed(4)}\n`,
       );
-      return false;
+      return { done: false };
+    case 'compact': {
+      if (session.messages.filter((m) => m.role !== 'system').length <= 4) {
+        process.stdout.write('Nothing to compact yet.\n');
+        return { done: false };
+      }
+      const result = compactSessionMessages(session.messages, {
+        keepRecent: 6,
+        stubToolResults: true,
+        reason: 'manual',
+      });
+      session.messages = result.messages;
+      runtime.store.save(session);
+      process.stdout.write(
+        result.dropped > 0
+          ? `Compacted ${result.dropped} messages.\n`
+          : 'Stubbed large tool results.\n',
+      );
+      return { done: false };
+    }
+    case 'new':
+    case 'reset': {
+      runtime.store.setStatus(session, 'paused');
+      const next = runtime.store.create({
+        mode: session.mode,
+        cwd: session.cwd,
+        provider: session.provider,
+        model: session.model,
+      });
+      process.stdout.write(
+        `New session ${next.id.slice(0, 8)} · previous ${session.id.slice(0, 8)} saved.\n`,
+      );
+      return { done: false, session: next };
+    }
     case 'clear':
       process.stdout.write('\x1b[2J\x1b[H');
-      return false;
+      return { done: false };
     default:
       process.stdout.write(`Unknown command: /${command}. Try /help.\n`);
-      return false;
+      return { done: false };
   }
 }

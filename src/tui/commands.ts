@@ -112,7 +112,9 @@ export const SLASH_COMMANDS: SlashCommand[] = [
   { name: 'status', description: 'Show session, provider, tools, skills, MCP status' },
   { name: 'cost', description: 'Show usage, or toggle status-bar cost (on|off)', args: ['on', 'off', 'toggle'] },
   { name: 'diff', description: 'Show uncommitted changes this session' },
-  { name: 'compact', description: 'Summarize old turns to reclaim context' },
+  { name: 'compact', description: 'Trim old turns to reclaim context' },
+  { name: 'new', description: 'Start a fresh session (keeps previous on disk)' },
+  { name: 'reset', description: 'Alias for /new' },
   {
     name: 'plugin',
     description: 'Manage plugins',

@@ -15,5 +15,11 @@ export type AgentEvent =
   | { type: 'approval-resolved'; toolCallId: string; granted: boolean; autoApproved: boolean }
   | { type: 'tool-result'; toolCallId: string; toolName: string; ok: boolean; output: string }
   | { type: 'usage'; usage: Usage; estimatedCostUsd: number }
+  | {
+      type: 'session-compacted';
+      dropped: number;
+      reason: 'threshold' | 'ratio' | 'overflow' | 'manual';
+      remaining: number;
+    }
   | { type: 'turn-end'; finishReason: string }
   | { type: 'error'; error: SkyError };
