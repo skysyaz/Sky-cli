@@ -35,6 +35,9 @@ function globalOptions(program: Command): GlobalOptions {
     quiet: o.quiet,
     color: o.color, // Commander sets false for --no-color
     json: o.json,
+    attach: o.attach,
+    attachUrl: o.attachUrl,
+    attachToken: o.attachToken,
   };
 }
 
@@ -71,6 +74,9 @@ function build(): Command {
     .option('--quiet', 'suppress non-error stderr output')
     .option('--no-color', 'disable ANSI color')
     .option('--json', 'output events as NDJSON on stdout')
+    .option('--attach', 'connect the TUI to a running Sky daemon over SSE')
+    .option('--attach-url <url>', 'daemon base URL (default: ~/.sky/daemon.json or SKY_DAEMON_URL)')
+    .option('--attach-token <token>', 'daemon token (default: ~/.sky/daemon.json or SKY_DAEMON_TOKEN)')
     .allowExcessArguments(true);
 
   // Default command: `sky [prompt]` / `sky agent [prompt]`

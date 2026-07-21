@@ -4,6 +4,7 @@ import type { SkyConfig } from '../config/index.js';
 import type { Logger } from '../logging/index.js';
 import type { Session, Mode } from '../session/types.js';
 import type { SessionStore } from '../session/store.js';
+import type { AnySessionStore } from '../session/create-store.js';
 import {
   compactSessionMessages,
   estimateMessageTokens,
@@ -29,6 +30,12 @@ import {
   type Suggestion,
 } from './commands.js';
 import { pluginForCommand, pluginForMcpTool, pluginStatusColor, pluginStatusText } from './plugin-status.js';
+import {
+  resolveDaemonTransport,
+  createDaemonSession,
+  streamDaemonMessage,
+  abortDaemonSession,
+} from '../cli/client.js';
 
 export interface AppProps {
   /** Lazily create a provider by name so a config error (e.g. missing API key)
@@ -37,7 +44,7 @@ export interface AppProps {
   makeProvider: (providerName: string) => Provider;
   registry: ToolRegistry;
   session: Session;
-  store: SessionStore;
+  store: SessionStore | AnySessionStore;
   config: SkyConfig;
   logger: Logger;
   force?: boolean;
@@ -47,6 +54,10 @@ export interface AppProps {
   plugins?: LoadedPlugin[];
   /** Skills loaded from ~/.sky/skills and project paths. */
   skills?: Skill[];
+  /** Run turns against a Sky daemon over SSE instead of in-process AgentLoop. */
+  attach?: boolean;
+  attachUrl?: string;
+  attachToken?: string;
 }
 
 type LogKind = 'user' | 'assistant' | 'tool' | 'tool-result' | 'system' | 'error';
@@ -98,6 +109,9 @@ export function App(props: AppProps): React.ReactElement {
   /** Brief flash after reload so new plugins are obvious in the status bar. */
   const [pluginsJustReloaded, setPluginsJustReloaded] = useState(false);
   const pluginFlashTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const attachTransportRef = useRef<{ url: string; token: string } | null>(null);
+  const remoteSessionIdRef = useRef<string | null>(props.attach ? null : session.id);
+  const [attachReady, setAttachReady] = useState(!props.attach);
 
   // Flatten plugin-contributed commands for the palette and for execution.
   const pluginCommands = useMemo<PluginCommand[]>(() => plugins.flatMap((p) => p.commands), [plugins]);
@@ -217,6 +231,11 @@ export function App(props: AppProps): React.ReactElement {
   }
 
   async function runAgent(prompt: string, opts: { activePlugin?: string | null } = {}): Promise<void> {
+    if (props.attach) {
+      await runAgentAttached(prompt, opts);
+      return;
+    }
+
     const activeProvider = ensureProvider();
     if (!activeProvider) return; // provider unavailable; error already shown
     const live = sessionRef.current;
@@ -305,6 +324,100 @@ export function App(props: AppProps): React.ReactElement {
     }
   }
 
+  /** Daemon SSE path for `sky --attach` — same UI event handling, remote loop. */
+  async function runAgentAttached(prompt: string, opts: { activePlugin?: string | null } = {}): Promise<void> {
+    const transport = attachTransportRef.current;
+    const remoteId = remoteSessionIdRef.current;
+    if (!transport || !remoteId) {
+      pushLog('error', 'Daemon attach not ready. Is `sky daemon start` running?');
+      return;
+    }
+    if (opts.activePlugin) setActivePlugin(opts.activePlugin);
+    setBusy(true);
+    const abort = new AbortController();
+    abortRef.current = abort;
+    let streamed = '';
+    try {
+      for await (const event of streamDaemonMessage({
+        url: transport.url,
+        token: transport.token,
+        sessionId: remoteId,
+        prompt,
+        yolo: yoloRef.current,
+        force: Boolean(props.force) || yoloRef.current,
+        signal: abort.signal,
+        onApproval: (req) =>
+          new Promise<ApprovalAnswer>((resolve) =>
+            setApproval({
+              request: {
+                toolName: req.toolName,
+                input: req.input,
+                reason: req.reason,
+                diff: req.diff,
+              },
+              resolve,
+            }),
+          ),
+      })) {
+        const type = (event as { type?: string }).type;
+        switch (type) {
+          case 'text-delta': {
+            const text = (event as { text?: string }).text ?? '';
+            streamed += text;
+            setStreaming(streamed);
+            break;
+          }
+          case 'tool-call': {
+            const toolCall = (event as { toolCall?: { name: string; input: Record<string, unknown> } }).toolCall;
+            if (toolCall) {
+              pushLog('tool', `${GLYPH} ${toolCall.name} ${summarize(toolCall.input)}`);
+              const fromMcp = pluginForMcpTool(plugins, toolCall.name);
+              if (fromMcp) setActivePlugin(fromMcp);
+            }
+            break;
+          }
+          case 'tool-result': {
+            const ev = event as { output?: string; ok?: boolean; toolName?: string };
+            pushLog('tool-result', firstLine(ev.output ?? ''), ev.ok);
+            if (ev.ok && (ev.toolName === 'write' || ev.toolName === 'edit')) {
+              setFilesEdited((n) => n + 1);
+            }
+            break;
+          }
+          case 'usage':
+          case 'turn-end':
+            if (streamed.trim()) pushLog('assistant', streamed.trim());
+            streamed = '';
+            setStreaming('');
+            break;
+          case 'error': {
+            if (streamed.trim()) {
+              pushLog('assistant', streamed.trim());
+              streamed = '';
+              setStreaming('');
+            }
+            const msg =
+              (event as { message?: string; error?: { message?: string } }).message ??
+              (event as { error?: { toUserMessage?: () => string } }).error?.toUserMessage?.() ??
+              'daemon error';
+            pushLog('error', String(msg));
+            break;
+          }
+          default:
+            break;
+        }
+      }
+    } catch (error) {
+      if (!(error instanceof Error && error.name === 'AbortError')) {
+        pushLog('error', (error as Error).message);
+      }
+    } finally {
+      setBusy(false);
+      setActivePlugin(null);
+      abortRef.current = null;
+    }
+  }
+
   function executeSlash(name: string, arg?: string): void {
     const live = sessionRef.current;
     switch (name) {
@@ -379,10 +492,29 @@ export function App(props: AppProps): React.ReactElement {
         setContextFill(0);
         setCostUsd(0);
         setFilesEdited(0);
-        pushLog(
-          'system',
-          `New session ${next.id.slice(0, 8)} · previous ${live.id.slice(0, 8)} saved. Resume with: sky resume ${live.id.slice(0, 8)}`,
-        );
+        if (props.attach && attachTransportRef.current) {
+          void createDaemonSession(attachTransportRef.current, {
+            mode: next.mode,
+            cwd: next.cwd,
+            provider: next.provider,
+            model: next.model,
+          })
+            .then((remote) => {
+              remoteSessionIdRef.current = remote.id;
+              pushLog(
+                'system',
+                `New session ${next.id.slice(0, 8)} (daemon ${remote.id.slice(0, 8)}) · previous ${live.id.slice(0, 8)} saved.`,
+              );
+            })
+            .catch((error) => {
+              pushLog('error', `Daemon /new failed: ${(error as Error).message}`);
+            });
+        } else {
+          pushLog(
+            'system',
+            `New session ${next.id.slice(0, 8)} · previous ${live.id.slice(0, 8)} saved. Resume with: sky resume ${live.id.slice(0, 8)}`,
+          );
+        }
         break;
       }
       case 'exit':
@@ -748,6 +880,10 @@ export function App(props: AppProps): React.ReactElement {
       setInput('');
       return;
     }
+    if (props.attach && !attachReady) {
+      pushLog('system', 'Still connecting to daemon…');
+      return;
+    }
     pushLog('user', text);
     setInput('');
     void runAgent(text);
@@ -774,7 +910,14 @@ export function App(props: AppProps): React.ReactElement {
     }
 
     if (busy) {
-      if (key.ctrl && char === 'c') abortRef.current?.abort();
+      if (key.ctrl && char === 'c') {
+        abortRef.current?.abort();
+        const transport = attachTransportRef.current;
+        const remoteId = remoteSessionIdRef.current;
+        if (props.attach && transport && remoteId) {
+          void abortDaemonSession(transport, remoteId);
+        }
+      }
       return;
     }
 
@@ -853,23 +996,57 @@ export function App(props: AppProps): React.ReactElement {
   });
 
   useEffect(() => {
-    // If the session is stuck on a provider with no key (e.g. qwen-web), fall
-    // back to keyless OpenCode so the user can chat immediately.
-    const needsKey = !isKeylessProvider(providerName) && !hasApiKey(providerName, config.providers[providerName]);
-    if (needsKey) {
-      pushLog(
-        'system',
-        `${providerName} needs an API key. Switching to keyless OpenCode free models.\n` +
-          `Use /keys to add a key later, or /provider ${providerName} after /keys set ${providerName} <key>.`,
-      );
-      switchProvider('opencode', { announce: true });
-    } else {
-      ensureProvider();
+    let cancelled = false;
+    async function boot(): Promise<void> {
+      if (props.attach) {
+        try {
+          const transport = await resolveDaemonTransport({
+            url: props.attachUrl,
+            token: props.attachToken,
+          });
+          if (cancelled) return;
+          attachTransportRef.current = transport;
+          const remote = await createDaemonSession(transport, {
+            mode: sessionRef.current.mode,
+            cwd: sessionRef.current.cwd,
+            provider: sessionRef.current.provider,
+            model: sessionRef.current.model,
+          });
+          if (cancelled) return;
+          remoteSessionIdRef.current = remote.id;
+          setAttachReady(true);
+          pushLog('system', `Attached to daemon ${transport.url} · session ${remote.id.slice(0, 8)}`);
+        } catch (error) {
+          pushLog('error', `Attach failed: ${(error as Error).message}`);
+          setAttachReady(false);
+          return;
+        }
+      } else {
+        // If the session is stuck on a provider with no key (e.g. qwen-web), fall
+        // back to keyless OpenCode so the user can chat immediately.
+        const needsKey =
+          !isKeylessProvider(providerName) && !hasApiKey(providerName, config.providers[providerName]);
+        if (needsKey) {
+          pushLog(
+            'system',
+            `${providerName} needs an API key. Switching to keyless OpenCode free models.\n` +
+              `Use /keys to add a key later, or /provider ${providerName} after /keys set ${providerName} <key>.`,
+          );
+          switchProvider('opencode', { announce: true });
+        } else {
+          ensureProvider();
+        }
+      }
+
+      if (props.initialPrompt) {
+        pushLog('user', props.initialPrompt);
+        void runAgent(props.initialPrompt);
+      }
     }
-    if (props.initialPrompt) {
-      pushLog('user', props.initialPrompt);
-      void runAgent(props.initialPrompt);
-    }
+    void boot();
+    return () => {
+      cancelled = true;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

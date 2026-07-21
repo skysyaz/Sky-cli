@@ -16,14 +16,18 @@ export * as agent from './agent/index.js';
 export * as skills from './skills/index.js';
 export * as mcp from './mcp/index.js';
 export * as protocol from './protocol/api.js';
+export * as openapi from './protocol/openapi.js';
+export * as sdk from './sdk/client.js';
 
 // Commonly used entry points, re-exported flat for convenience.
 export { SkyError, ErrorCode } from './errors/index.js';
 export { loadConfig, defaultConfig } from './config/index.js';
-export { SessionStore } from './session/index.js';
+export { SessionStore, createSessionStore, SqliteSessionStore } from './session/index.js';
 export { AgentLoop } from './agent/index.js';
 export { createProvider, MockProvider } from './llm/index.js';
 export { ToolRegistry } from './tools/index.js';
 export { Policy, Approver, AuditLog } from './safety/index.js';
 export { startDaemonHttp, generateDaemonToken } from './server/http.js';
-export { readDaemonState, startDetachedDaemon, stopDaemon } from './server/daemon.js';
+export { readDaemonState, startDetachedDaemon, stopDaemon, acquireDaemonLock } from './server/daemon.js';
+export { SkyDaemonClient } from './sdk/client.js';
+export { skyDaemonOpenApi } from './protocol/openapi.js';

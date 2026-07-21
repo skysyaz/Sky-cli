@@ -89,6 +89,9 @@ export async function runSession(options: RunSessionOptions): Promise<number> {
       initialPrompt: options.initialPrompt,
       plugins: runtime.plugins,
       skills: runtime.skills,
+      attach: global.attach,
+      attachUrl: global.attachUrl,
+      attachToken: global.attachToken,
     });
     return 0;
   }

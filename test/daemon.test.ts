@@ -93,8 +93,40 @@ describe('daemon HTTP API', () => {
       expect(text).toContain('event: turn-start');
       expect(text).toContain('event: turn-end');
       expect(text).toContain('event: done');
+
+      const listed = await fetch(`${http.url}/sessions`, {
+        headers: { 'X-Sky-Token': token },
+      });
+      expect(listed.ok).toBe(true);
+      const body = (await listed.json()) as { sessions: Array<{ id: string }> };
+      expect(body.sessions.some((s) => s.id === session.id)).toBe(true);
     } finally {
       await http.close();
     }
+  });
+});
+
+describe('daemon lock', () => {
+  let dir: string;
+  let prevHome: string | undefined;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), 'sky-dlock-'));
+    prevHome = process.env.SKY_HOME;
+    process.env.SKY_HOME = dir;
+  });
+  afterEach(() => {
+    if (prevHome === undefined) delete process.env.SKY_HOME;
+    else process.env.SKY_HOME = prevHome;
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('acquires and releases pid lock', async () => {
+    const { acquireDaemonLock, releaseDaemonLock, readDaemonPid } = await import('../src/server/daemon.js');
+    expect(acquireDaemonLock(process.pid)).toBe(true);
+    expect(readDaemonPid()).toBe(process.pid);
+    expect(acquireDaemonLock(process.pid + 99999)).toBe(false);
+    releaseDaemonLock(process.pid);
+    expect(readDaemonPid()).toBeNull();
   });
 });

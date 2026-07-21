@@ -4,6 +4,7 @@ import type { SkyConfig } from '../config/index.js';
 import type { Logger } from '../logging/index.js';
 import type { Session } from '../session/types.js';
 import type { SessionStore } from '../session/store.js';
+import type { AnySessionStore } from '../session/create-store.js';
 import type { Provider } from '../llm/types.js';
 import type { ToolRegistry } from '../tools/index.js';
 import type { LoadedPlugin } from '../plugins/index.js';
@@ -14,7 +15,7 @@ export interface RunTuiOptions {
   makeProvider: (providerName: string) => Provider;
   registry: ToolRegistry;
   session: Session;
-  store: SessionStore;
+  store: SessionStore | AnySessionStore;
   config: SkyConfig;
   logger: Logger;
   force?: boolean;
@@ -22,6 +23,9 @@ export interface RunTuiOptions {
   initialPrompt?: string;
   plugins?: LoadedPlugin[];
   skills?: Skill[];
+  attach?: boolean;
+  attachUrl?: string;
+  attachToken?: string;
 }
 
 /**

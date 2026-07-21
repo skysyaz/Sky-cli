@@ -6,7 +6,7 @@
 import { spawn } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, writeFileSync, unlinkSync } from 'node:fs';
 import { dirname } from 'node:path';
-import { daemonStatePath } from '../config/paths.js';
+import { daemonStatePath, daemonPidPath } from '../config/paths.js';
 
 export interface DaemonState {
   url: string;
@@ -38,6 +38,52 @@ export function clearDaemonState(path = daemonStatePath()): void {
   if (existsSync(path)) unlinkSync(path);
 }
 
+/** True when a process with this PID is still alive. */
+export function isPidAlive(pid: number): boolean {
+  if (!pid || Number.isNaN(pid)) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Acquire exclusive daemon PID lock under `~/.sky/daemon.pid`.
+ * Returns false when another healthy daemon still holds the lock.
+ */
+export function acquireDaemonLock(pid = process.pid): boolean {
+  const path = daemonPidPath();
+  mkdirSync(dirname(path), { recursive: true });
+  if (existsSync(path)) {
+    const raw = readFileSync(path, 'utf8').trim();
+    const old = Number.parseInt(raw, 10);
+    if (isPidAlive(old) && old !== pid) return false;
+  }
+  writeFileSync(path, `${pid}\n`, { encoding: 'utf8', mode: 0o600 });
+  return true;
+}
+
+export function releaseDaemonLock(pid = process.pid): void {
+  const path = daemonPidPath();
+  if (!existsSync(path)) return;
+  try {
+    const raw = readFileSync(path, 'utf8').trim();
+    const owner = Number.parseInt(raw, 10);
+    if (owner === pid || !isPidAlive(owner)) unlinkSync(path);
+  } catch {
+    /* best-effort */
+  }
+}
+
+export function readDaemonPid(): number | null {
+  const path = daemonPidPath();
+  if (!existsSync(path)) return null;
+  const n = Number.parseInt(readFileSync(path, 'utf8').trim(), 10);
+  return Number.isFinite(n) ? n : null;
+}
+
 export async function isDaemonHealthy(state: DaemonState): Promise<boolean> {
   try {
     const res = await fetch(`${state.url}/health`, {
@@ -55,28 +101,36 @@ export async function isDaemonHealthy(state: DaemonState): Promise<boolean> {
 /** Stop a registered daemon (SIGTERM then SIGKILL). */
 export async function stopDaemon(): Promise<boolean> {
   const state = readDaemonState();
-  if (!state) return false;
+  const pid = state?.pid ?? readDaemonPid();
+  if (!pid) {
+    clearDaemonState();
+    releaseDaemonLock();
+    return false;
+  }
   try {
-    process.kill(state.pid, 'SIGTERM');
+    process.kill(pid, 'SIGTERM');
   } catch {
     clearDaemonState();
+    releaseDaemonLock(pid);
     return false;
   }
   for (let i = 0; i < 20; i++) {
     await new Promise((r) => setTimeout(r, 100));
     try {
-      process.kill(state.pid, 0);
+      process.kill(pid, 0);
     } catch {
       clearDaemonState();
+      releaseDaemonLock(pid);
       return true;
     }
   }
   try {
-    process.kill(state.pid, 'SIGKILL');
+    process.kill(pid, 'SIGKILL');
   } catch {
     /* gone */
   }
   clearDaemonState();
+  releaseDaemonLock(pid);
   return true;
 }
 
@@ -91,6 +145,10 @@ export async function startDetachedDaemon(options: {
   const existing = readDaemonState();
   if (existing && (await isDaemonHealthy(existing))) return existing;
   if (existing) await stopDaemon();
+
+  // Stale PID lock without state → clear so serve can register.
+  const locked = readDaemonPid();
+  if (locked && !isPidAlive(locked)) releaseDaemonLock(locked);
 
   const reexec = reexecServeArgs({
     port: options.port,

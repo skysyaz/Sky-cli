@@ -1,6 +1,6 @@
 import { createLogger, nullLogger, type Logger, type LogLevel } from '../logging/index.js';
 import { loadConfig, requireConfig, logFilePath, type SkyConfig } from '../config/index.js';
-import { SessionStore } from '../session/store.js';
+import { createSessionStore, type AnySessionStore } from '../session/create-store.js';
 import { createProvider } from '../llm/registry.js';
 import type { Provider } from '../llm/types.js';
 import { ToolRegistry } from '../tools/registry.js';
@@ -24,13 +24,17 @@ export interface GlobalOptions {
   quiet?: boolean;
   color?: boolean; // false when --no-color
   json?: boolean;
+  /** Attach Ink TUI / headless runner to a running daemon over SSE. */
+  attach?: boolean;
+  attachUrl?: string;
+  attachToken?: string;
 }
 
 /** Everything a command needs, assembled once at startup. */
 export interface Runtime {
   config: SkyConfig;
   logger: Logger;
-  store: SessionStore;
+  store: AnySessionStore;
   registry: ToolRegistry;
   cwd: string;
   color: boolean;
@@ -106,7 +110,7 @@ export function buildRuntime(options: GlobalOptions, requireExisting = true): Ru
   return {
     config,
     logger,
-    store: new SessionStore({ logger }),
+    store: createSessionStore({ logger, backend: config.sessions.backend }),
     registry,
     cwd,
     color: resolveColor(options),

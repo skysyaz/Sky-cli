@@ -32,6 +32,14 @@ export interface ToolDiffPreview {
   newContent: string;
 }
 
+/** Result of materialize (validate + optional preview) before approval/settle. */
+export interface MaterializedTool {
+  name: string;
+  input: Record<string, unknown>;
+  preview?: ToolDiffPreview;
+  requiresApproval: boolean;
+}
+
 /**
  * The Tool interface (§6.1). Deliberately minimal: metadata, a Zod input schema,
  * an approval predicate, and an execute method. Tools are pure functions of
@@ -50,3 +58,7 @@ export interface Tool<TInput = Record<string, unknown>> {
   preview?(input: TInput, ctx: ToolContext): Promise<ToolDiffPreview | undefined>;
   execute(input: TInput, ctx: ToolContext): Promise<ToolResult>;
 }
+
+/** Tools safe to settle concurrently after approval (no shared write conflicts). */
+export const PARALLEL_SAFE_TOOLS = new Set(['read', 'search', 'forge']);
+

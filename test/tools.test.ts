@@ -109,3 +109,22 @@ describe('shell tool', () => {
     expect(result.output).not.toContain('renamed to');
   });
 });
+
+describe('materialize / settle / pty', () => {
+  it('materializes without side effects then settles', async () => {
+    writeFileSync(join(dir, 'm.txt'), 'before');
+    const mat = await registry.materialize('write', { path: 'm.txt', content: 'after' }, ctx);
+    expect(mat.requiresApproval).toBe(true);
+    expect(readFileSync(join(dir, 'm.txt'), 'utf8')).toBe('before');
+    const settled = await registry.settle('write', mat.input, ctx);
+    expect(settled.ok).toBe(true);
+    expect(readFileSync(join(dir, 'm.txt'), 'utf8')).toBe('after');
+  });
+  it('registers pty and streams exit status', async () => {
+    expect(registry.has('pty')).toBe(true);
+    const result = await registry.execute('pty', { command: 'echo pty-ok' }, ctx);
+    expect(result.ok).toBe(true);
+    expect(result.output).toContain('pty-ok');
+    expect(result.output).toContain('[exit code 0]');
+  });
+});

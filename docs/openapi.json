@@ -1,0 +1,20 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Sky Daemon API",
+    "version": "1.1.0",
+    "description": "Localhost HTTP + SSE API for the Sky agent daemon. Authenticate with Bearer or X-Sky-Token."
+  },
+  "paths": {
+    "/health": { "get": { "summary": "Liveness" } },
+    "/sessions": {
+      "get": { "summary": "List sessions" },
+      "post": { "summary": "Create session" }
+    },
+    "/sessions/{id}": { "get": { "summary": "Session metadata" } },
+    "/sessions/{id}/message": { "post": { "summary": "Run a turn (SSE)" } },
+    "/sessions/{id}/events": { "get": { "summary": "Subscribe SSE" } },
+    "/sessions/{id}/abort": { "post": { "summary": "Abort turn" } },
+    "/approvals/{id}": { "post": { "summary": "Resolve approval" } }
+  }
+}

@@ -25,9 +25,7 @@ Reference: [opencode/dev](https://github.com/anomalyco/opencode/tree/dev) archit
 
 ## Gap → phases
 
-### Phase 1 — Daemon + HTTP + SSE (this PR) ✅ foundation
-
-OpenCode topology without rewriting the loop/TUI:
+### Phase 1 — Daemon + HTTP + SSE ✅
 
 ```
 sky daemon / sky serve     → localhost HTTP API + SSE
@@ -35,11 +33,10 @@ sky attach / SKY_DAEMON_URL → client talks to daemon
 default `sky`              → still in-process Ink TUI (unchanged)
 ```
 
-API surface (v1):
-
 | Method | Path | Role |
 | --- | --- | --- |
 | GET | `/health` | liveness + version |
+| GET | `/sessions` | list sessions |
 | POST | `/sessions` | create session |
 | GET | `/sessions/:id` | metadata |
 | POST | `/sessions/:id/message` | run turn; events on SSE |
@@ -47,27 +44,27 @@ API surface (v1):
 | POST | `/approvals/:id` | resolve permission ask |
 | POST | `/sessions/:id/abort` | cancel in-flight turn |
 
-Wraps existing `AgentLoop` + `Approver`; approvals park until HTTP resolve.
+### Phase 2 — Thin clients + multi-session ✅
 
-### Phase 2 — Thin clients + multi-session
+- Ink TUI `--attach` / `--attach-url` / `--attach-token` consuming SSE
+- Concurrent sessions in one daemon + `GET /sessions`
+- Session/pid lock under `~/.sky/daemon.json` + `~/.sky/daemon.pid`
 
-- Ink TUI optional `--attach` path consuming SSE (same `AgentEvent` schema)
-- Concurrent sessions in one daemon
-- Session/pid lock under `~/.sky/daemon.json`
+### Phase 3 — Loop upgrades ✅
 
-### Phase 3 — Loop upgrades (OpenCode mechanisms)
+- Concurrent tool settlement (`PARALLEL_SAFE_TOOLS`: read/search/forge)
+- Tool `materialize` / `settle` API on `ToolRegistry`
+- Interactive-style `pty` tool (pipe-based; shell denylist applies)
+- Prompt caching: Anthropic `cache_control` on system; OpenAI cache hint header
+- Optional SQLite via `sessions.backend: "sqlite"` (`node:sqlite`, JSON fallback)
 
-- Concurrent tool settlement (parallel tool calls)
-- Tool materialize / settle API
-- Interactive PTY tool
-- Prompt caching in Anthropic/OpenAI adapters
-- Optional SQLite behind `SessionStore`
+### Phase 4 — Packaging ✅
 
-### Phase 4 — Packaging (optional)
-
-- Workspace packages: `cli` / `server` / `protocol` / `sdk` (logical split already under `src/`)
-- Generated OpenAPI + typed SDK client
-- **Not required:** Effect runtime, Solid.js, OpenTUI (keep Ink unless we deliberately migrate UI)
+- Logical modules under `src/{cli,server,protocol,sdk}`
+- OpenAPI: `docs/openapi.json` + `src/protocol/openapi.ts`
+- Typed SDK: `SkyDaemonClient` (`@sky/cli/sdk`)
+- Package exports: `.`, `./sdk`, `./protocol`, `./openapi`
+- **Not required:** Effect runtime, Solid.js, OpenTUI (keep Ink)
 
 ---
 
@@ -80,13 +77,15 @@ Wraps existing `AgentLoop` + `Approver`; approvals park until HTTP resolve.
 
 ---
 
-## Commands (Phase 1)
+## Commands
 
 ```bash
-sky serve [--port N] [--yolo]     # foreground API server
-sky daemon start|status|stop      # background daemon (detached)
-sky attach <prompt>               # one-shot client → daemon (NDJSON on stdout)
+sky serve [--port N] [--register] [--yolo]
+sky daemon start|status|stop
+sky attach <prompt>                 # one-shot NDJSON client
+sky --attach [prompt]               # Ink TUI over SSE
 export SKY_DAEMON_URL=http://127.0.0.1:4096
+export SKY_DAEMON_TOKEN=...
 ```
 
 See `docs/USAGE.md` § Daemon.

@@ -100,6 +100,12 @@ export class OpenAiAdapter implements Provider {
 
     let stream: AsyncIterable<any>;
     try {
+      // Stable system-first message order enables OpenAI automatic prompt caching
+      // on repeated prefixes; pass through optional cache hint headers.
+      const headers = {
+        ...(request.signal ? {} : {}),
+        'X-Sky-Prompt-Cache': 'ephemeral',
+      };
       stream = await client.chat.completions.create(
         {
           model: request.model,
@@ -110,7 +116,10 @@ export class OpenAiAdapter implements Provider {
           stream: true,
           ...(this.options.includeUsage === false ? {} : { stream_options: { include_usage: true } }),
         },
-        request.signal ? { signal: request.signal } : undefined,
+        {
+          ...(request.signal ? { signal: request.signal } : {}),
+          headers,
+        },
       );
     } catch (error) {
       throw providerErrorFromStatus((error as { status?: number }).status, (error as Error).message, error);

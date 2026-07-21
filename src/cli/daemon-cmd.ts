@@ -14,6 +14,8 @@ import {
   startDetachedDaemon,
   stopDaemon,
   daemonStateTemplate,
+  acquireDaemonLock,
+  releaseDaemonLock,
 } from '../server/daemon.js';
 import { attachAndRun } from './client.js';
 
@@ -33,6 +35,13 @@ export async function serveCommand(
   });
 
   if (opts.register) {
+    if (!acquireDaemonLock(process.pid)) {
+      process.stderr.write(
+        chalk.red('Another Sky daemon holds ~/.sky/daemon.pid. Run `sky daemon stop` first.\n'),
+      );
+      await http.close();
+      return 1;
+    }
     writeDaemonState(
       daemonStateTemplate({
         url: http.url,
@@ -52,7 +61,10 @@ export async function serveCommand(
   process.stderr.write(chalk.gray(`Health: curl -H "X-Sky-Token: $SKY_DAEMON_TOKEN" ${http.url}/health\n`));
 
   const shutdown = async () => {
-    if (opts.register) clearDaemonState();
+    if (opts.register) {
+      clearDaemonState();
+      releaseDaemonLock(process.pid);
+    }
     await http.close();
     process.exit(0);
   };

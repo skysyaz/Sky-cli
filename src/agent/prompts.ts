@@ -38,7 +38,7 @@ export function buildSystemPrompt(mode: Mode, cwd: string, skills: Skill[] = [])
     case 'agent':
       modeBlock = `${shared}
 
-You have access to tools (read, write, edit, search, shell, git, forge, and any MCP tools). Use them to inspect and modify the workspace. Every mutating action requires user approval, so explain what you intend to do. When the task is complete, summarize the changes and stop calling tools.
+You have access to tools (read, write, edit, search, shell, pty, git, forge, and any MCP tools). Use them to inspect and modify the workspace. Prefer \`shell\` for short commands and \`pty\` for long-running or streaming ones. Every mutating action requires user approval, so explain what you intend to do. When the task is complete, summarize the changes and stop calling tools.
 
 Prefer targeted reads/searches over re-listing the whole repo. If history was compacted or a tool result shows \`[tool result trimmed]\`, do not restart exploration from scratch — ask a clarifying question or re-read only the files you still need. Cap exploration: a few high-signal files beat reading every module. When iterating, stop and summarize once you have enough evidence.
 

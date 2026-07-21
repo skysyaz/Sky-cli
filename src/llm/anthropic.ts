@@ -98,7 +98,10 @@ export class AnthropicAdapter implements Provider {
     try {
       stream = await client.messages.stream({
         model: request.model,
-        system: system || undefined,
+        // Prompt caching: mark the system prompt as an ephemeral cache breakpoint.
+        system: system
+          ? [{ type: 'text', text: system, cache_control: { type: 'ephemeral' } }]
+          : undefined,
         messages,
         tools: this.toAnthropicTools(request.tools),
         max_tokens: request.maxOutputTokens ?? DEFAULT_LIMITS.maxOutput,
