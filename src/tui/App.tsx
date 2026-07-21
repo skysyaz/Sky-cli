@@ -18,7 +18,7 @@ import {
   getSuggestions,
   parseInput,
   SLASH_COMMANDS,
-  MODEL_SUGGESTIONS,
+  modelsForProvider,
   PROVIDER_NAMES,
   type Suggestion,
 } from './commands.js';
@@ -87,8 +87,14 @@ export function App(props: AppProps): React.ReactElement {
     () => (provider ? provider.tokenLimits(model).contextWindow : 128_000),
     [provider, model],
   );
-  const modelSuggestions = useMemo(() => [model, ...MODEL_SUGGESTIONS.filter((m) => m !== model)], [model]);
-  const suggestions = busy || approval ? [] : getSuggestions(input, { modelSuggestions, extraCommands });
+  const modelSuggestions = useMemo(
+    () => modelsForProvider(session.provider, model),
+    [session.provider, model],
+  );
+  const suggestions =
+    busy || approval
+      ? []
+      : getSuggestions(input, { modelSuggestions, extraCommands, provider: session.provider });
   const paletteOpen = suggestions.length > 0;
   const clampedSelected = suggestions.length ? Math.min(selected, suggestions.length - 1) : 0;
 
@@ -574,17 +580,37 @@ function LogLine({ item }: { item: LogItem }): React.ReactElement {
 }
 
 function Palette({ suggestions, selected }: { suggestions: Suggestion[]; selected: number }): React.ReactElement {
+  // On narrow terminals (Termux), avoid side-by-side label+description that
+  // wraps and overlaps. Args (models) show the full id alone; commands keep a
+  // short description when it fits.
   return (
     <Box flexDirection="column" borderStyle="round" borderColor="gray" paddingX={1}>
-      {suggestions.slice(0, 8).map((s, i) => (
-        <Box key={s.label}>
-          <Text color={i === selected ? 'cyan' : undefined} bold={i === selected}>
-            {i === selected ? '❯ ' : '  '}
-            {s.label.padEnd(20)}
-          </Text>
-          <Text color="gray"> {s.description}</Text>
-        </Box>
-      ))}
+      {suggestions.slice(0, 10).map((s, i) => {
+        const active = i === selected;
+        const prefix = active ? '❯ ' : '  ';
+        if (s.kind === 'arg') {
+          // Full model/provider id on one line; optional short tag after.
+          const tag = s.description ? `  ${s.description}` : '';
+          return (
+            <Box key={`${s.kind}:${s.value}`}>
+              <Text color={active ? 'cyan' : undefined} bold={active}>
+                {prefix}
+                {s.label}
+              </Text>
+              {tag ? <Text color="gray">{tag}</Text> : null}
+            </Box>
+          );
+        }
+        return (
+          <Box key={`${s.kind}:${s.value}`}>
+            <Text color={active ? 'cyan' : undefined} bold={active}>
+              {prefix}
+              {s.label}
+            </Text>
+            <Text color="gray"> {s.description}</Text>
+          </Box>
+        );
+      })}
     </Box>
   );
 }
