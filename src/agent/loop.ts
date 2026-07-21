@@ -80,7 +80,7 @@ export class AgentLoop {
 
     yield { type: 'turn-start', mode: session.mode, model: session.model, provider: session.provider };
 
-    const maxIterations = this.opts.maxIterations ?? 25;
+    const maxIterations = this.opts.maxIterations ?? this.opts.config.sessions.maxIterations ?? 60;
     let finishReason = 'stop';
 
     try {
@@ -127,8 +127,10 @@ export class AgentLoop {
           yield* this.handleToolCall(session, toolCall);
         }
 
+        // Last budgeted tool round — ask for a summary instead of SKY-E-2003.
         if (iteration === maxIterations - 1) {
-          throw new SkyError(ErrorCode.MaxIterations, { n: maxIterations });
+          finishReason = yield* this.wrapUpMaxIterations(session, maxIterations);
+          break;
         }
       }
 
@@ -145,6 +147,35 @@ export class AgentLoop {
       this.logger.error('agent.turn.failed', { code: skyError.code });
       yield { type: 'error', error: skyError };
     }
+  }
+
+  /**
+   * Soft-stop when the tool-round budget is exhausted: nudge the model to
+   * summarize without more tools, instead of failing the turn with SKY-E-2003.
+   */
+  private async *wrapUpMaxIterations(
+    session: Session,
+    maxIterations: number,
+  ): AsyncGenerator<AgentEvent, string> {
+    const { store } = this.opts;
+    this.logger.warn('agent.max_iterations.wrap_up', { n: maxIterations });
+    store.appendMessage(session, {
+      role: 'user',
+      content:
+        `[sky] Reached the max tool iterations (${maxIterations}) for this turn. ` +
+        `Do not call more tools. Summarize findings so far in a short bullet list. ` +
+        `The user can send another message to continue.`,
+    });
+
+    const wrap = yield* this.streamTurn(session, { disableTools: true });
+    const text =
+      wrap.assistantText.trim() ||
+      `(Stopped after ${maxIterations} tool rounds — send another message to continue the audit.)`;
+    store.appendMessage(session, { role: 'assistant', content: text });
+    if (!wrap.assistantText.trim()) {
+      yield { type: 'text-delta', text };
+    }
+    return 'max_iterations';
   }
 
   /**
@@ -229,6 +260,7 @@ export class AgentLoop {
   /** Stream one provider response, yielding text/tool-call events. */
   private async *streamTurn(
     session: Session,
+    options: { disableTools?: boolean } = {},
   ): AsyncGenerator<AgentEvent, { assistantText: string; toolCalls: ToolCall[]; reason: string }> {
     const { registry, config } = this.opts;
     // Mutable — rebuilt when provider fallback switches adapters.
@@ -240,7 +272,10 @@ export class AgentLoop {
     if (proactive) yield proactive;
 
     const allDefs = registry.definitions();
-    const tools = modeHasTools(session.mode) ? filterToolsForMode(session.mode, allDefs) : undefined;
+    const tools =
+      !options.disableTools && modeHasTools(session.mode)
+        ? filterToolsForMode(session.mode, allDefs)
+        : undefined;
 
     // Retry buildContext after overflow compact; then retry the stream.
     const overflowRetries = config.sessions.autoCompact ? 3 : 0;

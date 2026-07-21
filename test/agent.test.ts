@@ -58,6 +58,45 @@ describe('AgentLoop (§2.4.1)', () => {
     expect(events.at(-1)?.type).toBe('turn-end');
   });
 
+  it('soft-wraps instead of SKY-E-2003 when maxIterations is hit', async () => {
+    // Two tool rounds then wrap-up (disableTools) consumes the summary turn.
+    const script: { text?: string; toolCalls?: { id: string; name: string; input: Record<string, unknown> }[] }[] = [
+      { text: 'step-0', toolCalls: [{ id: 't0', name: 'read', input: { path: 'readme.md' } }] },
+      { text: 'step-1', toolCalls: [{ id: 't1', name: 'read', input: { path: 'readme.md' } }] },
+      { text: 'final summary of findings' },
+    ];
+    writeFileSync(join(dir, 'readme.md'), 'hello');
+
+    const config = defaultConfig();
+    config.sessions.maxIterations = 2;
+    const store = new SessionStore({ dir: join(dir, 'sessions'), indexPath: join(dir, 'sessions.index') });
+    const session = store.create({ mode: 'ask', cwd: dir, provider: 'mock', model: 'mock-1' });
+    const policy = new Policy(config, session.sessionAllowlist);
+    const provider = new MockProvider({ script });
+    const loop = new AgentLoop({
+      provider,
+      registry: new ToolRegistry(),
+      approver: new Approver({
+        policy,
+        audit: new AuditLog({ path: join(dir, 'audit.log') }),
+        yolo: true,
+      }),
+      policy,
+      session,
+      store,
+      config,
+      logger: nullLogger,
+      maxIterations: 2,
+    });
+
+    const events = await collect(loop.run('audit everything'));
+    expect(events.some((e) => e.type === 'error')).toBe(false);
+    const end = events.find((e) => e.type === 'turn-end') as { finishReason: string } | undefined;
+    expect(end?.finishReason).toBe('max_iterations');
+    const text = events.filter((e) => e.type === 'text-delta').map((e) => (e as any).text).join('');
+    expect(text).toMatch(/final summary|Stopped after/i);
+  });
+
   it('executes a tool call, gets approval, and applies the change', async () => {
     const provider = new MockProvider({
       script: [

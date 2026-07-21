@@ -154,6 +154,11 @@ const sessionsSchema = z
      * usable context budget (contextWindow − maxOutput − margin).
      */
     autoCompactRatio: z.number().min(0.2).max(0.95).default(0.7),
+    /**
+     * Max assistant↔tool rounds per user turn. Bug scans / broad audits need
+     * headroom; free models often burn rounds re-reading files.
+     */
+    maxIterations: z.number().int().positive().max(200).default(60),
     retentionDays: z.number().int().positive().default(90),
     budgetUsd: z.number().nonnegative().optional(),
   })
