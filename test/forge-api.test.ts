@@ -121,6 +121,112 @@ describe('forge tool', () => {
     );
     const me = await forgeWhoami(resolveForge(config)!);
     expect(me.login).toBe('octo');
+
+    const result = await forgeTool.execute(
+      { action: 'whoami' },
+      { cwd: dir, config, logger: nullLogger },
+    );
+    expect(result.ok).toBe(true);
+    expect(result.output).toContain('login=octo');
+  });
+
+  it('status / missing token / repo name validation', async () => {
+    const config = defaultConfig();
+    const status = await forgeTool.execute(
+      { action: 'status' },
+      { cwd: dir, config, logger: nullLogger },
+    );
+    expect(status.ok).toBe(true);
+    expect(status.output).toContain('No forges connected');
+
+    const missing = await forgeTool.execute(
+      { action: 'repos' },
+      { cwd: dir, config, logger: nullLogger },
+    );
+    expect(missing.ok).toBe(false);
+    expect(missing.output).toContain('No forge token');
+
+    config.forge.remotes.github = { type: 'github', baseUrl: 'https://github.com' };
+    writeForgeToken('github', 'ghp_x');
+    const needName = await forgeTool.execute(
+      { action: 'repo' },
+      { cwd: dir, config, logger: nullLogger },
+    );
+    expect(needName.ok).toBe(false);
+    expect(needName.output).toContain('owner/repo');
+  });
+
+  it('repo lookup and empty list via tool', async () => {
+    const config = defaultConfig();
+    config.forge.remotes.github = { type: 'github', baseUrl: 'https://github.com' };
+    config.forge.default = 'github';
+    writeForgeToken('github', 'ghp_testtoken');
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => {
+        const u = String(url);
+        if (u.includes('/repos/octo/hello')) {
+          return {
+            ok: true,
+            status: 200,
+            text: async () =>
+              JSON.stringify({
+                full_name: 'octo/hello',
+                private: true,
+                description: 'secret',
+                html_url: 'https://github.com/octo/hello',
+                default_branch: 'main',
+                updated_at: '2026-01-02T00:00:00Z',
+              }),
+          };
+        }
+        return { ok: true, status: 200, text: async () => '[]' };
+      }),
+    );
+
+    const empty = await forgeTool.execute(
+      { action: 'repos' },
+      { cwd: dir, config, logger: nullLogger },
+    );
+    expect(empty.ok).toBe(true);
+    expect(empty.output).toContain('no repositories');
+
+    const one = await forgeTool.execute(
+      { action: 'repo', name: 'octo/hello' },
+      { cwd: dir, config, logger: nullLogger },
+    );
+    expect(one.ok).toBe(true);
+    expect(one.output).toContain('octo/hello');
+    expect(one.output).toContain('private');
+  });
+
+  it('surfaces API failures as retryable tool errors', async () => {
+    const config = defaultConfig();
+    config.forge.remotes.github = { type: 'github', baseUrl: 'https://github.com' };
+    writeForgeToken('github', 'ghp_bad');
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ({
+        ok: false,
+        status: 401,
+        text: async () => 'bad credentials',
+      })),
+    );
+    const result = await forgeTool.execute(
+      { action: 'whoami' },
+      { cwd: dir, config, logger: nullLogger },
+    );
+    expect(result.ok).toBe(false);
+    expect(result.retryable).toBe(true);
+    expect(result.output).toContain('failed');
+  });
+
+  it('maps GitHub Enterprise and Gitea API bases', () => {
+    expect(forgeApiBase({ type: 'github', baseUrl: 'https://github.example.com' })).toBe(
+      'https://github.example.com/api/v3',
+    );
+    expect(forgeApiBase({ type: 'github', baseUrl: 'not a url' })).toBe('https://api.github.com');
   });
 
   it('is registered and auto-approved by policy', () => {
@@ -143,6 +249,19 @@ describe('provider upstream 400 handling', () => {
   it('keeps genuine bad requests as SKY-E-5010', () => {
     const err = providerErrorFromStatus(400, 'invalid tool schema');
     expect(err.code).toBe(ErrorCode.ProviderBadRequest);
+  });
+
+  it('maps common provider statuses', () => {
+    expect(providerErrorFromStatus(429, 'slow').code).toBe(ErrorCode.ProviderRateLimited);
+    expect(providerErrorFromStatus(503, 'down').code).toBe(ErrorCode.ProviderUnavailable);
+    expect(providerErrorFromStatus(401, 'nope').code).toBe(ErrorCode.ProviderAuthFailed);
+    expect(providerErrorFromStatus(403, 'no').code).toBe(ErrorCode.ProviderForbidden);
+    expect(providerErrorFromStatus(451, 'blocked').code).toBe(ErrorCode.ProviderContentFilter);
+    expect(providerErrorFromStatus(502, 'bad gateway').code).toBe(ErrorCode.ProviderUnavailable);
+    expect(providerErrorFromStatus(418, 'teapot').code).toBe(ErrorCode.ProviderRequestFailed);
+    expect(providerErrorFromStatus(400, 'Upstream error from proxy').code).toBe(
+      ErrorCode.ProviderRequestFailed,
+    );
   });
 });
 
