@@ -45,6 +45,11 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Empty Enter on approval prompts denies (safer default).
 - Skill frontmatter closing fence requires a line of exactly `---`.
 - Git `log` ignores non-numeric `-n` args.
+- Agent turn soft-wraps at `sessions.maxIterations` (default 60) instead of hard `SKY-E-2003`.
+
+### Added
+- **Agent daemon** (OpenCode-style): `sky serve`, `sky daemon start|stop|status`, `sky attach` — localhost HTTP + SSE wrapping `AgentLoop`. See `docs/OPENCODE_PARITY.md`.
+- Root `bug.list` documenting the bug-scan findings.
 
 ## [1.0.0] - 2026-07-12
 

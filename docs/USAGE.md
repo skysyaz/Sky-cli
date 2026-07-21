@@ -171,6 +171,31 @@ forget files it just read. Use `/new` anytime you want a clean slate without qui
 
 **Approvals:** agent mode still asks before shell/writes unless you enable YOLO
 (`sky --yolo`, `sky yolo`, or `/yolo on`). Hard denylist always wins.
+
+### Daemon (OpenCode-style HTTP + SSE)
+
+Default `sky` still runs the agent **in-process**. Optionally run a localhost
+daemon so clients can attach over HTTP + Server-Sent Events (same `AgentEvent`
+stream as `--json`):
+
+```bash
+sky serve --register --yolo     # foreground server; writes ~/.sky/daemon.json
+sky daemon start                # detached background daemon
+sky daemon status
+sky attach "summarize README"   # one-shot client → NDJSON events
+sky daemon stop
+```
+
+API (127.0.0.1 + `X-Sky-Token` / `Authorization: Bearer`):
+
+- `GET /health`
+- `POST /sessions` · `GET /sessions/:id`
+- `POST /sessions/:id/message` (SSE)
+- `GET /sessions/:id/events` (SSE)
+- `POST /approvals/:id` `{ "answer": "yes"|"no"|"always"|"edit" }`
+- `POST /sessions/:id/abort`
+
+Full roadmap: [`docs/OPENCODE_PARITY.md`](./OPENCODE_PARITY.md).
 ---
 
 ## 4. Choosing a provider

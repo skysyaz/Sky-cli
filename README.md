@@ -198,6 +198,17 @@ Self-hosted Gitea is supported the same way as GitHub. If you see a transient
 `Upstream request failed` from a free OpenCode model, retry or switch model —
 that is the LLM provider, not forge auth.
 
+### Agent daemon (OpenCode-style)
+
+```bash
+sky serve --register          # HTTP + SSE agent API on 127.0.0.1
+sky daemon start|status|stop  # background daemon
+sky attach "your prompt"      # one-shot client (NDJSON)
+```
+
+Default `sky` remains the in-process TUI. See `docs/OPENCODE_PARITY.md` for the
+full parity roadmap (concurrent tools, PTY, SQLite, thin TUI attach, …).
+
 ```bash
 sky -p anthropic -m claude-3-5-sonnet "…"
 sky -p gemini "…"
