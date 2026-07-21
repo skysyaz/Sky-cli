@@ -19,6 +19,8 @@ export interface OpenAiAdapterOptions {
   includeUsage?: boolean;
   name?: string;
   limits?: Record<string, TokenLimits>;
+  /** Cap max_tokens for gateways that stall / interrupt on huge budgets. */
+  maxOutputCap?: number;
 }
 
 const DEFAULT_LIMITS: TokenLimits = { contextWindow: 128_000, maxOutput: 16_384 };
@@ -54,6 +56,8 @@ export class OpenAiAdapter implements Provider {
       apiKey: this.options.apiKey || 'not-needed',
       baseURL: this.options.baseUrl,
       defaultHeaders: this.options.defaultHeaders,
+      // Mobile / flaky networks (Termux) benefit from a longer idle timeout.
+      timeout: 120_000,
     });
     return this.client;
   }
@@ -88,17 +92,26 @@ export class OpenAiAdapter implements Provider {
 
   async *stream(request: StreamRequest): AsyncIterable<StreamChunk> {
     const client = await this.getClient();
+    const cap = this.options.maxOutputCap;
+    const maxTokens =
+      request.maxOutputTokens !== undefined && cap !== undefined
+        ? Math.min(request.maxOutputTokens, cap)
+        : (request.maxOutputTokens ?? cap);
+
     let stream: AsyncIterable<any>;
     try {
-      stream = await client.chat.completions.create({
-        model: request.model,
-        messages: this.toOpenAiMessages(request.messages),
-        tools: this.toOpenAiTools(request.tools),
-        max_tokens: request.maxOutputTokens,
-        temperature: request.temperature,
-        stream: true,
-        ...(this.options.includeUsage === false ? {} : { stream_options: { include_usage: true } }),
-      }, request.signal ? { signal: request.signal } : undefined);
+      stream = await client.chat.completions.create(
+        {
+          model: request.model,
+          messages: this.toOpenAiMessages(request.messages),
+          tools: this.toOpenAiTools(request.tools),
+          max_tokens: maxTokens,
+          temperature: request.temperature,
+          stream: true,
+          ...(this.options.includeUsage === false ? {} : { stream_options: { include_usage: true } }),
+        },
+        request.signal ? { signal: request.signal } : undefined,
+      );
     } catch (error) {
       throw providerErrorFromStatus((error as { status?: number }).status, (error as Error).message, error);
     }
@@ -107,13 +120,26 @@ export class OpenAiAdapter implements Provider {
     const toolAcc = new Map<number, { id: string; name: string; args: string }>();
     let usage = { inputTokens: 0, outputTokens: 0 };
     let finish: 'stop' | 'tool_calls' | 'length' = 'stop';
+    let emittedText = false;
 
     try {
       for await (const part of stream) {
         if (request.signal?.aborted) throw new SkyError(ErrorCode.AgentAborted, {});
         const choice = part.choices?.[0];
         const delta = choice?.delta;
-        if (delta?.content) yield { type: 'text-delta', text: delta.content };
+        // Some gateways (OpenCode Zen free models) stream `content: null` while
+        // emitting `reasoning_content`. Only yield real string content.
+        const text =
+          typeof delta?.content === 'string'
+            ? delta.content
+            : typeof (delta as { reasoning_content?: unknown } | undefined)?.reasoning_content === 'string' &&
+                !delta?.content
+              ? '' // ignore reasoning tokens for the user-visible stream
+              : undefined;
+        if (text) {
+          emittedText = true;
+          yield { type: 'text-delta', text };
+        }
         if (delta?.tool_calls) {
           for (const tc of delta.tool_calls) {
             const idx = tc.index ?? 0;
@@ -133,7 +159,27 @@ export class OpenAiAdapter implements Provider {
       }
     } catch (error) {
       if (SkyError.is(error)) throw error;
-      throw new SkyError(ErrorCode.ProviderStreamInterrupted, {}, error);
+      // Mobile / flaky networks often drop Mid-stream after partial text
+      // (especially OpenCode free models that reason for a long time). Prefer
+      // returning what we have over a hard SKY-E-5020 when content already landed.
+      if (emittedText || toolAcc.size > 0) {
+        for (const acc of toolAcc.values()) {
+          let input: Record<string, unknown> = {};
+          try {
+            input = acc.args ? (JSON.parse(acc.args) as Record<string, unknown>) : {};
+          } catch {
+            input = {};
+          }
+          yield { type: 'tool-call', toolCall: { id: acc.id, name: acc.name, input } };
+        }
+        yield { type: 'done', usage, finishReason: toolAcc.size > 0 ? 'tool_calls' : finish };
+        return;
+      }
+      throw new SkyError(
+        ErrorCode.ProviderStreamInterrupted,
+        { detail: (error as Error).message ? `: ${(error as Error).message}` : '' },
+        error,
+      );
     }
 
     for (const acc of toolAcc.values()) {
@@ -155,6 +201,10 @@ export class OpenAiAdapter implements Provider {
   }
 
   tokenLimits(model: string): TokenLimits {
-    return this.options.limits?.[model] ?? DEFAULT_LIMITS;
+    const base = this.options.limits?.[model] ?? DEFAULT_LIMITS;
+    if (this.options.maxOutputCap !== undefined) {
+      return { ...base, maxOutput: Math.min(base.maxOutput, this.options.maxOutputCap) };
+    }
+    return base;
   }
 }

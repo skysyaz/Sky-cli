@@ -150,7 +150,11 @@ export const ERROR_CATALOG: Record<ErrorCode, ErrorMeta> = {
   [ErrorCode.ProviderAuthFailed]: { message: 'Provider authentication failed (401)', retryable: false, exitCode: 66 },
   [ErrorCode.ProviderForbidden]: { message: 'Provider forbidden (403): {detail}', retryable: false, exitCode: 66 },
   [ErrorCode.ProviderContentFilter]: { message: 'Provider requested content filter (451)', retryable: false, exitCode: 66 },
-  [ErrorCode.ProviderStreamInterrupted]: { message: 'Provider response stream interrupted', retryable: true, exitCode: 66 },
+  [ErrorCode.ProviderStreamInterrupted]: {
+    message: 'Provider response stream interrupted{detail}',
+    retryable: true,
+    exitCode: 66,
+  },
   [ErrorCode.ProviderStreamParse]: { message: 'Provider stream parse error: {detail}', retryable: false, exitCode: 66 },
   [ErrorCode.ProviderBudgetExceeded]: { message: 'Provider cost budget exceeded ({spent} > {budget})', retryable: false, exitCode: 66 },
   [ErrorCode.ProviderUnknown]: { message: 'Unknown provider error: {detail}', retryable: false, exitCode: 66 },

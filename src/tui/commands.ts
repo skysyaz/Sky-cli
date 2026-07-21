@@ -10,19 +10,54 @@ export interface SlashCommand {
   args?: string[];
 }
 
+/** OpenCode Zen free models (guest-token, no personal API key). */
+export const OPENCODE_FREE_MODELS = [
+  'deepseek-v4-flash-free',
+  'mimo-v2.5-free',
+  'north-mini-code-free',
+  'nemotron-3-ultra-free',
+  'big-pickle',
+];
+
 /** Model suggestions offered for `/model`. Merged with the active model at runtime. */
 export const MODEL_SUGGESTIONS = [
+  // OpenCode free first — commonly used without a key
+  ...OPENCODE_FREE_MODELS,
   'gpt-4o',
   'gpt-4o-mini',
   'claude-3-5-sonnet',
   'claude-sonnet-4-5',
   'gemini-2.0-flash',
   'deepseek-chat',
+  'deepseek-v4-flash',
   'llama-3.3-70b-versatile',
   'x-ai/grok-4.5-free',
   'gpt-oss:120b',
   'qwen3-coder:480b',
 ];
+
+/** Models recommended per provider for the `/model` palette. */
+export const MODELS_BY_PROVIDER: Record<string, string[]> = {
+  opencode: [
+    ...OPENCODE_FREE_MODELS,
+    'deepseek-v4-flash',
+    'deepseek-v4-pro',
+    'minimax-m2.5',
+    'glm-5',
+    'kimi-k2.5',
+    'big-pickle',
+  ],
+  openai: ['gpt-4o', 'gpt-4o-mini', 'gpt-4.1', 'o4-mini'],
+  anthropic: ['claude-3-5-sonnet', 'claude-sonnet-4-5', 'claude-opus-4-5', 'claude-haiku-4-5'],
+  ollama: ['llama3.1', 'qwen2.5-coder', 'codellama', 'mistral'],
+  'ollama-cloud': ['gpt-oss:120b', 'qwen3-coder:480b'],
+  openrouter: ['openai/gpt-4o', 'anthropic/claude-3.5-sonnet', 'x-ai/grok-4.5-free'],
+  zenmux: ['x-ai/grok-4.5-free', 'openai/gpt-4o'],
+  gemini: ['gemini-2.0-flash', 'gemini-2.5-pro', 'gemini-2.5-flash'],
+  deepseek: ['deepseek-chat', 'deepseek-reasoner'],
+  groq: ['llama-3.3-70b-versatile', 'llama-3.1-8b-instant'],
+  mock: ['mock-1'],
+};
 
 /** The providers a user can switch to via `/provider`. */
 export const PROVIDER_NAMES = [
@@ -99,6 +134,39 @@ function matches(candidate: string, query: string): boolean {
   return c.startsWith(q) || c.includes(q);
 }
 
+/** Short tag for a model in the palette (avoids duplicating the long id). */
+export function modelTag(model: string): string {
+  if (model.endsWith('-free') || model === 'big-pickle' || model.includes('free')) return 'free';
+  if (model.startsWith('claude')) return 'anthropic';
+  if (model.startsWith('gpt') || model.startsWith('o')) return 'openai';
+  if (model.startsWith('gemini')) return 'gemini';
+  if (model.startsWith('deepseek')) return 'deepseek';
+  if (model.includes('llama') || model.includes('groq')) return 'groq/llama';
+  if (model.includes('/')) return model.split('/')[0]!;
+  return 'model';
+}
+
+/**
+ * Build the `/model` suggestion list for the active provider, always including
+ * the current model first and de-duplicating.
+ */
+export function modelsForProvider(provider: string, currentModel?: string): string[] {
+  const fromProvider = MODELS_BY_PROVIDER[provider] ?? MODEL_SUGGESTIONS;
+  const ordered = [
+    ...(currentModel ? [currentModel] : []),
+    ...fromProvider,
+    ...MODEL_SUGGESTIONS,
+  ];
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const m of ordered) {
+    if (!m || seen.has(m)) continue;
+    seen.add(m);
+    out.push(m);
+  }
+  return out;
+}
+
 /**
  * Compute palette suggestions for the current input. Returns command names while
  * the user is still typing the command, and argument values once a known command
@@ -106,7 +174,11 @@ function matches(candidate: string, query: string): boolean {
  */
 export function getSuggestions(
   input: string,
-  options: { modelSuggestions?: string[]; extraCommands?: { name: string; description: string }[] } = {},
+  options: {
+    modelSuggestions?: string[];
+    extraCommands?: { name: string; description: string }[];
+    provider?: string;
+  } = {},
 ): Suggestion[] {
   const parsed = parseInput(input);
   if (!parsed.isSlash) return [];
@@ -127,8 +199,24 @@ export function getSuggestions(
 
   const command = SLASH_COMMANDS.find((c) => c.name === parsed.command);
   if (!command?.args) return [];
-  const args = command.name === 'model' ? options.modelSuggestions ?? command.args : command.args;
-  return args
+
+  if (command.name === 'model') {
+    const args =
+      options.modelSuggestions ??
+      (options.provider ? modelsForProvider(options.provider) : command.args);
+    return args
+      .filter((a) => matches(a, parsed.arg))
+      .map((a) => ({
+        kind: 'arg' as const,
+        // Label is the full model id; description is a short tag only —
+        // duplicating the id caused wrap/overlap on narrow Termux screens.
+        label: a,
+        description: modelTag(a),
+        value: a,
+      }));
+  }
+
+  return command.args
     .filter((a) => matches(a, parsed.arg))
-    .map((a) => ({ kind: 'arg' as const, label: a, description: `${command.name} → ${a}`, value: a }));
+    .map((a) => ({ kind: 'arg' as const, label: a, description: '', value: a }));
 }
