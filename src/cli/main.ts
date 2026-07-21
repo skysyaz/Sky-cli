@@ -11,6 +11,8 @@ import {
   mcpCommand,
   doctorCommand,
   keysCommand,
+  dashboardCommand,
+  forgeCommand,
 } from './commands.js';
 import { updateCommand } from './update.js';
 import { pluginCommand } from './plugin.js';
@@ -137,6 +139,31 @@ function build(): Command {
     .description('API key dashboard: list, set <provider> <key>, clear <provider>')
     .action((action: string | undefined, provider: string | undefined, keyParts: string[] | undefined) =>
       run(() => keysCommand(action, provider, keyParts?.join(' '), globalOptions(program))),
+    );
+
+  program
+    .command('dashboard')
+    .alias('ui')
+    .description('open a local browser dashboard for API keys and GitHub/Gitea forges')
+    .option('--port <port>', 'port to bind (default: ephemeral)', (v) => Number(v))
+    .option('--no-open', 'do not open a browser')
+    .action((opts: { port?: number; open?: boolean }) =>
+      run(() => dashboardCommand(opts, globalOptions(program))),
+    );
+
+  program
+    .command('forge [action] [id]')
+    .description('manage GitHub/Gitea forges: list, add, token, default, remove')
+    .option('--type <type>', 'github | gitea')
+    .option('--url <url>', 'forge base URL')
+    .option('--username <name>', 'HTTPS username (Gitea)')
+    .option('--token <token>', 'personal access token')
+    .action(
+      (
+        action: string | undefined,
+        id: string | undefined,
+        opts: { type?: string; url?: string; username?: string; token?: string },
+      ) => run(() => forgeCommand(action, id, opts, globalOptions(program))),
     );
 
   program

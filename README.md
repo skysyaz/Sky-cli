@@ -168,8 +168,25 @@ sky -s abc12 "continue…"    # attach to a session on start
 | `mock` | _(none)_ | Offline / tests |
 
 **Keyless free?** Use `/provider free` or `/keys use free` — no API key.
-Manage all keys in one place with `/keys` (or `sky keys`).
+Manage keys in the TUI with `/keys`, from the shell with `sky keys`, or in the
+**browser dashboard** with `sky dashboard` (local `127.0.0.1` only).
 `qwen-web` / `zai-web` / `kimi-web` need a free-tier API key (not website cookies).
+
+### Browser dashboard & GitHub / Gitea
+
+```bash
+sky dashboard                 # opens http://127.0.0.1:<port>/  (keys + forges)
+sky dashboard --no-open      # print URL only
+sky forge list
+sky forge add github --type github --url https://github.com --token ghp_…
+sky forge add work --type gitea --url https://gitea.example.com --username me --token …
+sky forge token work --token …
+```
+
+Forge tokens live in `~/.sky/secrets.json` as `forge:<id>`. When the agent runs
+`git push` / `pull` / `fetch`, Sky matches the remote host to a forge and uses
+HTTPS token auth **without rewriting** your remotes. Self-hosted Gitea is
+supported the same way as GitHub.
 
 ```bash
 sky -p anthropic -m claude-3-5-sonnet "…"

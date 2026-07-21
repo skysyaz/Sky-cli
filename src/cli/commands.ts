@@ -481,3 +481,133 @@ export async function keysCommand(
   process.stderr.write('Usage: sky keys [list|set|clear] …\n');
   return 64;
 }
+
+/** Open the local browser dashboard for API keys + GitHub/Gitea forges. */
+export async function dashboardCommand(
+  opts: { port?: number; open?: boolean },
+  global: GlobalOptions,
+): Promise<number> {
+  const { startDashboard } = await import('./dashboard.js');
+  return startDashboard({
+    port: opts.port,
+    openBrowser: opts.open !== false,
+    cwd: global.cwd,
+  });
+}
+
+/** Manage GitHub / Gitea forge remotes and tokens. */
+export async function forgeCommand(
+  action: string | undefined,
+  id: string | undefined,
+  opts: { type?: string; url?: string; username?: string; token?: string },
+  global: GlobalOptions,
+): Promise<number> {
+  const runtime = buildRuntime(global, false);
+  const {
+    writeForgeToken,
+    clearForgeToken,
+    listForgeRows,
+    normalizeForgeBaseUrl,
+  } = await import('../forge/index.js');
+  const { writeConfig } = await import('../config/index.js');
+  const act = (action ?? 'list').toLowerCase();
+
+  if (act === 'list' || act === 'ls' || act === 'status') {
+    const rows = listForgeRows(runtime.config);
+    if (rows.length === 0) {
+      process.stdout.write(
+        'No forges configured. Add one with:\n' +
+          '  sky forge add github --type github --url https://github.com --token <pat>\n' +
+          '  sky forge add work --type gitea --url https://gitea.example.com --username me --token <pat>\n' +
+          'Or open the browser UI: sky dashboard\n',
+      );
+      return 0;
+    }
+    for (const row of rows) {
+      const star = row.isDefault ? ' ★' : '';
+      const tok = row.hasToken ? 'token:set' : 'token:missing';
+      const user = row.username ? ` user=${row.username}` : '';
+      process.stdout.write(`${row.id}${star}\t${row.type}\t${row.baseUrl}${user}\t${tok}\n`);
+    }
+    return 0;
+  }
+
+  if (act === 'add' || act === 'set') {
+    if (!id) {
+      process.stderr.write('Usage: sky forge add <id> --type github|gitea --url <baseUrl> [--token <pat>]\n');
+      return 64;
+    }
+    const type = (opts.type ?? (id === 'github' ? 'github' : undefined)) as 'github' | 'gitea' | undefined;
+    if (type !== 'github' && type !== 'gitea') {
+      process.stderr.write('--type must be github or gitea\n');
+      return 64;
+    }
+    const url =
+      opts.url ?? (type === 'github' ? 'https://github.com' : undefined);
+    if (!url) {
+      process.stderr.write('--url is required for Gitea (e.g. https://gitea.example.com)\n');
+      return 64;
+    }
+    runtime.config.forge.remotes[id] = {
+      type,
+      baseUrl: normalizeForgeBaseUrl(url),
+      username: opts.username,
+    };
+    if (!runtime.config.forge.default) runtime.config.forge.default = id;
+    writeConfig(runtime.config);
+    if (opts.token) writeForgeToken(id, opts.token);
+    process.stdout.write(
+      `Saved forge ${id} (${type} @ ${normalizeForgeBaseUrl(url)})` +
+        (opts.token ? ' with token.\n' : '.\nSet a token with: sky forge token ' + id + ' --token <pat>\n'),
+    );
+    return 0;
+  }
+
+  if (act === 'token') {
+    if (!id || !opts.token) {
+      process.stderr.write('Usage: sky forge token <id> --token <pat>\n');
+      return 64;
+    }
+    if (!runtime.config.forge.remotes[id]) {
+      process.stderr.write(`Unknown forge "${id}". Add it first with sky forge add.\n`);
+      return 64;
+    }
+    writeForgeToken(id, opts.token);
+    process.stdout.write(`Saved token for forge ${id}.\n`);
+    return 0;
+  }
+
+  if (act === 'default') {
+    if (!id) {
+      process.stderr.write('Usage: sky forge default <id>\n');
+      return 64;
+    }
+    if (!runtime.config.forge.remotes[id]) {
+      process.stderr.write(`Unknown forge "${id}".\n`);
+      return 64;
+    }
+    runtime.config.forge.default = id;
+    writeConfig(runtime.config);
+    process.stdout.write(`Default forge → ${id}\n`);
+    return 0;
+  }
+
+  if (act === 'remove' || act === 'rm' || act === 'clear') {
+    if (!id) {
+      process.stderr.write('Usage: sky forge remove <id>\n');
+      return 64;
+    }
+    delete runtime.config.forge.remotes[id];
+    if (runtime.config.forge.default === id) runtime.config.forge.default = undefined;
+    writeConfig(runtime.config);
+    clearForgeToken(id);
+    process.stdout.write(`Removed forge ${id}.\n`);
+    return 0;
+  }
+
+  process.stderr.write(
+    'Usage: sky forge [list|add|token|default|remove] …\n' +
+      'Or open the browser UI: sky dashboard\n',
+  );
+  return 64;
+}

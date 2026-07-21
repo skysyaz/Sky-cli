@@ -169,6 +169,25 @@ const mcpSchema = z
   })
   .default({});
 
+/** Connected git forges (GitHub / Gitea self-hosted). Tokens live in secrets. */
+const forgeRemoteSchema = z.object({
+  type: z.enum(['github', 'gitea']),
+  /** Web/API base URL, e.g. https://github.com or https://gitea.example.com */
+  baseUrl: z.string().url(),
+  /** Optional display username for HTTPS remotes. */
+  username: z.string().optional(),
+});
+export type ForgeRemote = z.infer<typeof forgeRemoteSchema>;
+
+const forgeSchema = z
+  .object({
+    /** Default forge id used for git push/pull auth. */
+    default: z.string().optional(),
+    remotes: z.record(forgeRemoteSchema).default({}),
+  })
+  .default({});
+export type ForgeConfig = z.infer<typeof forgeSchema>;
+
 // A.8 observability.*
 const observabilitySchema = z
   .object({
@@ -190,6 +209,7 @@ export const configSchema = z.object({
   sessions: sessionsSchema,
   logging: loggingSchema,
   mcp: mcpSchema,
+  forge: forgeSchema,
   observability: observabilitySchema,
 });
 

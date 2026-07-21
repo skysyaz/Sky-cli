@@ -205,7 +205,7 @@ public guest token automatically. For **paid** Zen models, set
 /keys use free                # switch to keyless OpenCode
 ```
 
-Same from the shell (lightweight — no web UI):
+Same from the shell:
 
 ```bash
 sky keys
@@ -213,9 +213,39 @@ sky keys set openai sk-…
 sky keys clear openai
 ```
 
+Or open the **physical browser dashboard** (local only — like an OpenRouter
+keys page, but for Sky):
+
+```bash
+sky dashboard              # opens http://127.0.0.1:<port>/
+sky dashboard --no-open    # print URL; do not launch a browser
+sky dashboard --port 8787
+```
+
+The dashboard manages provider API keys **and** GitHub / Gitea forges in one
+page. Bind address is always `127.0.0.1`; mutating requests need an ephemeral
+`X-Sky-Token` baked into the page.
+
 Keys live in `~/.sky/secrets.json` (mode `0600`). If you open Sky on a
 provider with no key (e.g. leftover `qwen-web`), it auto-switches to
 **opencode** so you can chat immediately.
+
+### GitHub / Gitea (self-hosted)
+
+Connect a forge so the `git` tool can push/pull/fetch with a PAT over HTTPS
+(remotes on disk stay unchanged):
+
+```bash
+sky forge list
+sky forge add github --type github --url https://github.com --token ghp_…
+sky forge add work --type gitea --url https://gitea.example.com --username me --token …
+sky forge default work
+sky forge token work --token …
+sky forge remove work
+```
+
+Config (`forge.remotes`) is non-secret; tokens are stored as `forge:<id>` in
+secrets. Host matching uses the remote URL (HTTPS or `git@host:path`).
 
 Or switch live:
 
