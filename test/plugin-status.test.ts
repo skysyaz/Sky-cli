@@ -3,6 +3,8 @@ import {
   pluginForCommand,
   pluginForMcpTool,
   formatPluginStatusLabel,
+  pluginStatusColor,
+  pluginStatusText,
 } from '../src/tui/plugin-status.js';
 import type { LoadedPlugin } from '../src/plugins/types.js';
 
@@ -40,5 +42,25 @@ describe('plugin-status helpers', () => {
     expect(formatPluginStatusLabel([])).toBe('pl:0');
     expect(formatPluginStatusLabel(['ponytail'])).toBe('pl:ponytail');
     expect(formatPluginStatusLabel(['a', 'b', 'c', 'd'], 3)).toBe('pl:a,b,c+1');
+  });
+
+  it('colors plugins cyan while the agent is working', () => {
+    expect(
+      pluginStatusColor({
+        activePlugin: null,
+        pluginsHighlight: false,
+        busy: true,
+        hasPlugins: true,
+      }),
+    ).toBe('cyan');
+    expect(
+      pluginStatusColor({
+        activePlugin: null,
+        pluginsHighlight: false,
+        busy: false,
+        hasPlugins: true,
+      }),
+    ).toBe('gray');
+    expect(pluginStatusText(['ponytail'], 'ponytail')).toBe('pl:ponytail●');
   });
 });

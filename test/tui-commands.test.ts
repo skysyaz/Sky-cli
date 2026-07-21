@@ -67,6 +67,10 @@ describe('palette suggestions (§5.5)', () => {
     expect(getSuggestions('/re').map((x) => x.value)).toContain('reset');
   });
 
+  it('offers on/off/toggle for /yolo', () => {
+    expect(getSuggestions('/yolo ').map((x) => x.value)).toEqual(['on', 'off', 'toggle']);
+  });
+
   it('offers on/off/toggle for /cost', () => {
     expect(getSuggestions('/cost ').map((x) => x.value)).toEqual(['on', 'off', 'toggle']);
   });

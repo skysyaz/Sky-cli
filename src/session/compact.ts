@@ -106,8 +106,19 @@ export function compactSessionMessages(messages: Message[], options: CompactOpti
     return { messages: stubbed, dropped: 0, reason };
   }
 
-  const recent = nonSystem.slice(-keepRecent);
+  let start = Math.max(0, nonSystem.length - keepRecent);
+  // Never start mid tool-turn: snap back to the owning assistant (or user) message.
+  while (start > 0 && nonSystem[start]?.role === 'tool') start--;
+  // Drop orphan tool messages if we still somehow start on tool.
+  let recent = nonSystem.slice(start);
+  while (recent.length > 0 && recent[0]?.role === 'tool') recent = recent.slice(1);
+
   const dropped = nonSystem.length - recent.length;
+  if (dropped <= 0) {
+    const stubbed = maybeStubTools(messages, Boolean(options.stubToolResults), stubMaxChars);
+    return { messages: stubbed, dropped: 0, reason };
+  }
+
   const keptRecent = maybeStubTools(recent, Boolean(options.stubToolResults), stubMaxChars);
   const summary: Message = {
     role: 'user',

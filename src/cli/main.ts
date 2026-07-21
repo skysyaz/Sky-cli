@@ -83,6 +83,19 @@ function build(): Command {
     .action((prompt: string | undefined) => run(() => startModeSession('agent', prompt, globalOptions(program))));
 
   program
+    .command('yolo [prompt]')
+    .description('start agent with auto-approve (--yolo); same as sky --yolo [prompt]')
+    .action((prompt: string | undefined) =>
+      run(() =>
+        startModeSession('agent', prompt, {
+          ...globalOptions(program),
+          yolo: true,
+          force: true,
+        }),
+      ),
+    );
+
+  program
     .command('plan [prompt]')
     .description('plan-first mode: clarify and design before any change')
     .action((prompt: string | undefined) => run(() => startModeSession('plan', prompt, globalOptions(program))));

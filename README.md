@@ -130,6 +130,7 @@ When stdin is a TTY, Sky opens an Ink TUI:
 | `/diff` | Files edited this session |
 | `/compact` | Trim older messages to reclaim context (also auto on fill/overflow) |
 | `/new` | Start a fresh session (previous kept on disk; alias `/reset`) |
+| `/yolo` | Auto-approve tools this session (`on` / `off` / `toggle`) |
 | `/plugin …` | Marketplace / install / list / search |
 | `/clear` | Clear the screen (keeps history) |
 | `/exit` | Save and quit |
@@ -255,6 +256,8 @@ sky --force --quiet -p mock ask "ping"
 | Flag | Meaning |
 | --- | --- |
 | `--yolo` | Auto-approve every tool call (implies `--force`) |
+| `sky yolo [prompt]` | Same as `sky --yolo` |
+| `/yolo on\|off\|toggle` | Mid-session auto-approve (typing `yolo` as chat does **not**) |
 | `--force` | Skip prompts but still obey the hard denylist |
 | `--json` | Stream NDJSON agent events on stdout |
 | `--quiet` | Suppress non-error stderr |

@@ -28,7 +28,7 @@ import {
   providersForPalette,
   type Suggestion,
 } from './commands.js';
-import { pluginForCommand, pluginForMcpTool, formatPluginStatusLabel } from './plugin-status.js';
+import { pluginForCommand, pluginForMcpTool, pluginStatusColor, pluginStatusText } from './plugin-status.js';
 
 export interface AppProps {
   /** Lazily create a provider by name so a config error (e.g. missing API key)
@@ -83,6 +83,10 @@ export function App(props: AppProps): React.ReactElement {
   const [showCost, setShowCost] = useState(Boolean(config.tui.theme.layout.showCost));
   const [filesEdited, setFilesEdited] = useState(0);
   const [approval, setApproval] = useState<{ request: ApprovalPromptRequest; resolve: (a: ApprovalAnswer) => void } | null>(null);
+  /** Session YOLO — `/yolo` toggles; seeded only from CLI `--yolo` (not `--force`). */
+  const [yolo, setYolo] = useState(Boolean(props.yolo));
+  const yoloRef = useRef(yolo);
+  yoloRef.current = yolo;
 
   const idRef = useRef(0);
   const abortRef = useRef<AbortController | null>(null);
@@ -225,8 +229,9 @@ export function App(props: AppProps): React.ReactElement {
       audit: auditRef.current,
       prompter,
       logger: props.logger,
-      force: props.force,
-      yolo: props.yolo,
+      // force skips prompts; yolo also bypasses tool predicates — keep distinct.
+      force: Boolean(props.force) || yoloRef.current,
+      yolo: yoloRef.current,
     });
     const loop = new AgentLoop({
       provider: activeProvider,
@@ -309,7 +314,8 @@ export function App(props: AppProps): React.ReactElement {
           [
             'Sky commands',
             '  /help /status /keys /mode /model /provider /key /cost /diff /plugin',
-            '  /compact /new /clear /exit',
+            '  /compact /new /yolo /clear /exit',
+            '  /yolo [on|off|toggle]  auto-approve tools this session (not the same as typing "yolo")',
             '  /new                start a fresh session (keeps previous on disk)',
             '  /compact            trim old turns to reclaim context',
             '  /provider free      keyless OpenCode free models (no API key)',
@@ -320,6 +326,7 @@ export function App(props: AppProps): React.ReactElement {
             '  /plugin marketplace add <owner/repo> · install <name@market> · search <q>',
             'Keys: type / for palette · ↑/↓ · Tab/Enter · Esc clears · Enter submits',
             '      Ctrl+C cancels a running turn · Ctrl+C on empty input or Ctrl+D quits',
+            'Start with auto-approve: sky --yolo   or   sky yolo',
             'Auto-compact runs when context fills (~55%) or on overflow — long sessions OK.',
           ].join('\n'),
         );
@@ -327,6 +334,29 @@ export function App(props: AppProps): React.ReactElement {
       case 'clear':
         setLog([]);
         break;
+      case 'yolo': {
+        const flag = (arg ?? 'toggle').trim().toLowerCase();
+        let next = yolo;
+        if (flag === 'on' || flag === 'enable' || flag === '1') next = true;
+        else if (flag === 'off' || flag === 'disable' || flag === '0') next = false;
+        else if (flag === 'toggle' || flag === '') next = !yolo;
+        else {
+          pushLog(
+            'system',
+            `YOLO is ${yolo ? 'ON' : 'OFF'} (auto-approve tools).\nUsage: /yolo on | /yolo off | /yolo toggle\nOr start with: sky --yolo   /   sky yolo\nTyping "yolo" as a chat message does not enable this.`,
+          );
+          break;
+        }
+        setYolo(next);
+        yoloRef.current = next;
+        pushLog(
+          'system',
+          next
+            ? 'YOLO ON — tools auto-approved this session (hard denylist still applies). /yolo off to restore prompts.'
+            : 'YOLO OFF — tools will ask for approval again.',
+        );
+        break;
+      }
       case 'new':
       case 'reset': {
         if (busy) {
@@ -462,11 +492,12 @@ export function App(props: AppProps): React.ReactElement {
         pushLog(
           'system',
           [
-            `session ${live.id.slice(0, 8)} · ${mode} · ${providerName}:${model}`,
+            `session ${live.id.slice(0, 8)} · ${mode} · ${providerName}:${model}${yolo ? ' · YOLO' : ''}`,
             `cwd ${live.cwd}`,
             `tools ${toolCount} · plugins ${pluginCount}${pluginCount ? ` (${plugins.map((p) => p.name).join(', ')})` : ''} · skills ${skillCount} · mcp servers ${mcpCount}`,
             `context ~${fill}/${budget} tok (${Math.min(100, (fill / budget) * 100).toFixed(1)}%) · lifetime ${live.tokenUsage.input} in / ${live.tokenUsage.output} out · ~$${live.tokenUsage.estimatedCostUsd.toFixed(4)}`,
             `auto-compact: ${config.sessions.autoCompact ? 'on' : 'off'} (ratio ${config.sessions.autoCompactRatio} · threshold ${config.sessions.autoCompactThreshold})`,
+            `approvals: ${yolo ? 'YOLO (auto-approve) — /yolo off to prompt' : 'prompt — /yolo on to auto-approve'}`,
             activePlugin ? `active plugin: ${activePlugin}` : 'no plugin active this turn',
             live.lastTurnInterrupted ? '⚠ last turn was interrupted — history may be incomplete' : 'session healthy',
           ].join('\n'),
@@ -875,6 +906,8 @@ export function App(props: AppProps): React.ReactElement {
         pluginNames={plugins.map((p) => p.name)}
         activePlugin={activePlugin}
         pluginsHighlight={pluginsJustReloaded}
+        busy={busy}
+        yolo={yolo}
       />
     </Box>
   );
@@ -989,6 +1022,8 @@ function StatusBar({
   pluginNames,
   activePlugin,
   pluginsHighlight,
+  busy,
+  yolo,
 }: {
   mode: Mode;
   provider: string;
@@ -1002,22 +1037,27 @@ function StatusBar({
   pluginNames: string[];
   activePlugin: string | null;
   pluginsHighlight: boolean;
+  busy: boolean;
+  yolo: boolean;
 }): React.ReactElement {
   const pctColor = Number(pct) >= 95 ? 'red' : Number(pct) >= 90 ? 'yellow' : 'green';
   const costLabel = `~$${costUsd.toFixed(4)}`;
-  const pluginLabel = formatPluginStatusLabel(pluginNames);
-  // Active plugin (AI using it) → cyan; just reloaded → yellow; idle → gray.
-  const pluginColor = activePlugin ? 'cyan' : pluginsHighlight ? 'yellow' : 'gray';
-  const pluginText = activePlugin
-    ? `pl:${activePlugin}●`
-    : pluginLabel;
+  const pluginColor = pluginStatusColor({
+    activePlugin,
+    pluginsHighlight,
+    busy,
+    hasPlugins: pluginNames.length > 0,
+  });
+  const pluginText = pluginStatusText(pluginNames, activePlugin);
+  const modelShort = model.length > 24 ? `${model.slice(0, 22)}…` : model;
 
   return (
     <Box>
       <Text color={MODE_COLOR[mode]}>
         {GLYPH} {mode}
       </Text>
-      <Text color="gray"> · {provider}:{model}</Text>
+      {yolo ? <Text color="yellow"> · yolo</Text> : null}
+      <Text color="gray"> · {provider}:{modelShort}</Text>
       {showTokenBar ? (
         <>
           <Text color="gray"> · </Text>
@@ -1032,7 +1072,7 @@ function StatusBar({
       ) : null}
       <Text color="gray"> · {files} files</Text>
       <Text color="gray"> · </Text>
-      <Text color={pluginColor} bold={Boolean(activePlugin) || pluginsHighlight}>
+      <Text color={pluginColor} bold={pluginColor !== 'gray'}>
         {pluginText}
       </Text>
       <Text color="gray"> · {sessionId.slice(0, 5)}</Text>
