@@ -328,6 +328,7 @@ export function App(props: AppProps): React.ReactElement {
             '      Ctrl+C cancels a running turn · Ctrl+C on empty input or Ctrl+D quits',
             'Start with auto-approve: sky --yolo   or   sky yolo',
             'Auto-compact runs when context fills (~70%) or on overflow — long sessions OK.',
+            'Long audits: sessions.maxIterations (default 60); turn soft-stops with a summary if hit.',
           ].join('\n'),
         );
         break;

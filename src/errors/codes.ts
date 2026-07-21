@@ -124,7 +124,12 @@ export const ERROR_CATALOG: Record<ErrorCode, ErrorMeta> = {
     exitCode: 68,
   },
   [ErrorCode.NoToolDefinitions]: { message: 'No tool definitions provided but agent requested tool call.', retryable: false, exitCode: 70 },
-  [ErrorCode.MaxIterations]: { message: 'Agent turn exceeded max iterations ({n}).', retryable: false, exitCode: 70 },
+  [ErrorCode.MaxIterations]: {
+    message:
+      'Agent turn exceeded max iterations ({n}). Send another message to continue, narrow the task, or raise sessions.maxIterations in config.',
+    retryable: false,
+    exitCode: 70,
+  },
   [ErrorCode.PlanModeRejectedTool]: { message: 'Plan mode rejected tool call: {name}.', retryable: false, exitCode: 0 },
   [ErrorCode.AskModeReceivedTool]: { message: 'Ask mode received tool call (should be filtered).', retryable: false, exitCode: 70 },
 
