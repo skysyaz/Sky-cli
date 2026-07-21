@@ -10,6 +10,9 @@ import {
   estimateMessageTokens,
   contextBudget,
   sanitizeToolTurns,
+  AUTO_COMPACT_KEEP_RECENT,
+  AUTO_COMPACT_PROTECT_TOOLS,
+  AUTO_COMPACT_STUB_CHARS,
   type CompactReason,
 } from '../session/compact.js';
 import type { Provider, LlmMessage, StreamRequest } from '../llm/types.js';
@@ -139,17 +142,15 @@ export class AgentLoop {
   }
 
   /**
-   * Proactive compact when cumulative tokens or estimated history fill pass
-   * configured thresholds. Returns an event when history was changed.
+   * Proactive compact when estimated history size passes configured thresholds.
+   * Returns an event when history was changed.
    */
   private applyAutoCompact(session: Session): AgentEvent | null {
     const { config, store, provider } = this.opts;
     const limits = provider.tokenLimits(session.model);
-    const cumulative = session.tokenUsage.input + session.tokenUsage.output;
     if (
       !shouldAutoCompact({
         messages: session.messages,
-        cumulativeTokens: cumulative,
         limits,
         autoCompact: config.sessions.autoCompact,
         autoCompactThreshold: config.sessions.autoCompactThreshold,
@@ -159,16 +160,19 @@ export class AgentLoop {
       return null;
     }
 
+    const historyTokens = estimateMessageTokens(session.messages);
     const reason: CompactReason =
-      cumulative >= config.sessions.autoCompactThreshold ? 'threshold' : 'ratio';
+      historyTokens >= config.sessions.autoCompactThreshold ? 'threshold' : 'ratio';
     const result = compactSessionMessages(session.messages, {
-      keepRecent: 8,
+      keepRecent: AUTO_COMPACT_KEEP_RECENT,
       stubToolResults: true,
+      stubMaxChars: AUTO_COMPACT_STUB_CHARS,
+      protectRecentTools: AUTO_COMPACT_PROTECT_TOOLS,
       reason,
     });
     if (result.dropped <= 0 && result.messages === session.messages) return null;
     // Even if dropped is 0, stubbing may have shrunk tool payloads.
-    const before = estimateMessageTokens(session.messages);
+    const before = historyTokens;
     const after = estimateMessageTokens(result.messages);
     if (after >= before && result.dropped <= 0) return null;
 
@@ -195,6 +199,9 @@ export class AgentLoop {
     const result = compactSessionMessages(session.messages, {
       keepRecent: overflowKeepRecent(attempt),
       stubToolResults: true,
+      stubMaxChars: AUTO_COMPACT_STUB_CHARS,
+      // On overflow we must reclaim space — protect only the newest couple.
+      protectRecentTools: attempt === 0 ? 4 : 2,
       reason: 'overflow',
     });
     session.messages = result.messages;

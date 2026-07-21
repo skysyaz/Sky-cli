@@ -327,7 +327,7 @@ export function App(props: AppProps): React.ReactElement {
             'Keys: type / for palette · ↑/↓ · Tab/Enter · Esc clears · Enter submits',
             '      Ctrl+C cancels a running turn · Ctrl+C on empty input or Ctrl+D quits',
             'Start with auto-approve: sky --yolo   or   sky yolo',
-            'Auto-compact runs when context fills (~55%) or on overflow — long sessions OK.',
+            'Auto-compact runs when context fills (~70%) or on overflow — long sessions OK.',
           ].join('\n'),
         );
         break;

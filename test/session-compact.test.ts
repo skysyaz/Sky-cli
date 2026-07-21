@@ -8,6 +8,7 @@ import {
   estimateMessageTokens,
   contextBudget,
   overflowKeepRecent,
+  sanitizeToolTurns,
 } from '../src/session/compact.js';
 import type { Message } from '../src/session/types.js';
 import { AgentLoop } from '../src/agent/loop.js';
@@ -44,10 +45,11 @@ describe('session compact helpers', () => {
     expect(result.dropped).toBe(14);
     expect(result.messages[0]?.role).toBe('system');
     expect(result.messages[1]?.content).toContain('compacted 14');
+    expect(result.messages[1]?.content).toContain('Do not re-explore');
     expect(result.messages.length).toBe(1 + 1 + 6); // system + marker + 6
   });
 
-  it('stubs large tool results when asked', () => {
+  it('stubs large tool results when asked but keeps a prefix', () => {
     const messages: Message[] = [
       { role: 'user', content: 'hi' },
       { role: 'tool', content: 'x'.repeat(5000), toolCallId: 't1', name: 'shell' },
@@ -56,14 +58,35 @@ describe('session compact helpers', () => {
     const result = compactSessionMessages(messages, {
       keepRecent: 8,
       stubToolResults: true,
+      stubMaxChars: 100,
       reason: 'ratio',
     });
     const tool = result.messages.find((m) => m.role === 'tool');
     expect(tool?.content).toContain('tool result trimmed');
-    expect(tool!.content.length).toBeLessThan(80);
+    expect(tool?.content.startsWith('x'.repeat(100))).toBe(true);
+    expect(tool!.content.length).toBeLessThan(200);
   });
 
-  it('triggers auto-compact on ratio even below cumulative threshold', () => {
+  it('protects the newest tool results from stubbing', () => {
+    const messages: Message[] = [
+      { role: 'user', content: 'hi' },
+      { role: 'tool', content: 'OLD'.repeat(200), toolCallId: 't1', name: 'read' },
+      { role: 'tool', content: 'NEW'.repeat(200), toolCallId: 't2', name: 'read' },
+      { role: 'assistant', content: 'done' },
+    ];
+    const result = compactSessionMessages(messages, {
+      keepRecent: 8,
+      stubToolResults: true,
+      stubMaxChars: 20,
+      protectRecentTools: 1,
+      reason: 'ratio',
+    });
+    const tools = result.messages.filter((m) => m.role === 'tool');
+    expect(tools[0]?.content).toContain('tool result trimmed');
+    expect(tools[1]?.content).toBe('NEW'.repeat(200));
+  });
+
+  it('triggers auto-compact on ratio of current history', () => {
     const big = 'y'.repeat(4000);
     const messages: Message[] = Array.from({ length: 8 }, (_, i) => ({
       role: (i % 2 === 0 ? 'user' : 'assistant') as Message['role'],
@@ -72,7 +95,6 @@ describe('session compact helpers', () => {
     expect(
       shouldAutoCompact({
         messages,
-        cumulativeTokens: 100,
         limits: { contextWindow: 4000, maxOutput: 500 },
         autoCompact: true,
         autoCompactThreshold: 50_000,
@@ -81,7 +103,7 @@ describe('session compact helpers', () => {
     ).toBe(true);
   });
 
-  it('does not auto-compact short histories', () => {
+  it('does not auto-compact short histories even with huge lifetime usage', () => {
     expect(
       shouldAutoCompact({
         messages: [
@@ -97,10 +119,131 @@ describe('session compact helpers', () => {
     ).toBe(false);
   });
 
+  it('does not re-trigger on lifetime usage after history is small', () => {
+    // After a compact, history is tiny but tokenUsage.input+output stays huge.
+    // Lifetime usage must NOT force another compact.
+    const messages: Message[] = Array.from({ length: 8 }, (_, i) => ({
+      role: (i % 2 === 0 ? 'user' : 'assistant') as Message['role'],
+      content: `short-${i}`,
+    }));
+    expect(
+      shouldAutoCompact({
+        messages,
+        cumulativeTokens: 999_999,
+        limits: { contextWindow: 128_000, maxOutput: 4096 },
+        autoCompact: true,
+        autoCompactThreshold: 30_000,
+        autoCompactRatio: 0.7,
+      }),
+    ).toBe(false);
+  });
+
+  it('triggers on absolute current-history threshold', () => {
+    const messages: Message[] = Array.from({ length: 8 }, (_, i) => ({
+      role: (i % 2 === 0 ? 'user' : 'assistant') as Message['role'],
+      content: 'z'.repeat(20_000),
+    }));
+    expect(
+      shouldAutoCompact({
+        messages,
+        limits: { contextWindow: 1_000_000, maxOutput: 4096 },
+        autoCompact: true,
+        autoCompactThreshold: 5_000,
+        autoCompactRatio: 0.99,
+      }),
+    ).toBe(true);
+  });
+
   it('overflow keep counts get smaller', () => {
-    expect(overflowKeepRecent(0)).toBe(6);
-    expect(overflowKeepRecent(1)).toBe(4);
-    expect(overflowKeepRecent(2)).toBe(2);
+    expect(overflowKeepRecent(0)).toBe(12);
+    expect(overflowKeepRecent(1)).toBe(6);
+    expect(overflowKeepRecent(2)).toBe(3);
+  });
+
+  it('counts toolCalls in token estimates', () => {
+    const withCalls: Message[] = [
+      {
+        role: 'assistant',
+        content: 'calling',
+        toolCalls: [{ id: '1', name: 'read', input: { path: 'a.ts' } }],
+      },
+    ];
+    const plain: Message[] = [{ role: 'assistant', content: 'calling' }];
+    expect(estimateMessageTokens(withCalls)).toBeGreaterThan(estimateMessageTokens(plain));
+  });
+
+  it('respects autoCompact=false and zero budget', () => {
+    const messages: Message[] = Array.from({ length: 8 }, (_, i) => ({
+      role: (i % 2 === 0 ? 'user' : 'assistant') as Message['role'],
+      content: 'z'.repeat(5000),
+    }));
+    expect(
+      shouldAutoCompact({
+        messages,
+        limits: { contextWindow: 128_000, maxOutput: 4096 },
+        autoCompact: false,
+        autoCompactThreshold: 1,
+        autoCompactRatio: 0.1,
+      }),
+    ).toBe(false);
+    expect(
+      shouldAutoCompact({
+        messages,
+        limits: { contextWindow: 100, maxOutput: 200 },
+        autoCompact: true,
+        autoCompactThreshold: 999_999,
+        autoCompactRatio: 0.99,
+      }),
+    ).toBe(true);
+  });
+
+  it('snaps compact window off orphan leading tool messages', () => {
+    const messages: Message[] = [
+      { role: 'user', content: 'u0' },
+      { role: 'assistant', content: 'a0' },
+      { role: 'tool', content: 'orphan-tool', toolCallId: 't0', name: 'read' },
+      { role: 'user', content: 'u1' },
+      { role: 'assistant', content: 'a1' },
+      { role: 'tool', content: 'kept-tool', toolCallId: 't1', name: 'read' },
+    ];
+    // keepRecent=2 starts on the last tool; snap-back should include assistant.
+    const result = compactSessionMessages(messages, { keepRecent: 2, reason: 'manual' });
+    expect(result.messages.some((m) => m.role === 'tool' && m.content === 'orphan-tool')).toBe(
+      false,
+    );
+    expect(result.messages.some((m) => m.content === 'a1')).toBe(true);
+  });
+
+  it('wipes tool body entirely when stubMaxChars is 0', () => {
+    const messages: Message[] = [
+      { role: 'user', content: 'hi' },
+      { role: 'tool', content: 'secret-payload', toolCallId: 't1', name: 'read' },
+    ];
+    const result = compactSessionMessages(messages, {
+      keepRecent: 8,
+      stubToolResults: true,
+      stubMaxChars: 0,
+      reason: 'ratio',
+    });
+    const tool = result.messages.find((m) => m.role === 'tool');
+    expect(tool?.content).toMatch(/^\[tool result trimmed]/);
+    expect(tool?.content).not.toContain('secret-payload');
+  });
+
+  it('sanitizeToolTurns drops orphan tool messages', () => {
+    const cleaned = sanitizeToolTurns([
+      { role: 'user', content: 'hi' },
+      {
+        role: 'assistant',
+        content: '',
+        toolCalls: [{ id: 'ok', name: 'read', input: {} }],
+      },
+      { role: 'tool', content: 'good', toolCallId: 'ok', name: 'read' },
+      { role: 'tool', content: 'orphan', toolCallId: 'missing', name: 'read' },
+      { role: 'assistant', content: 'done' },
+    ]);
+    expect(cleaned.filter((m) => m.role === 'tool')).toHaveLength(1);
+    expect(cleaned.find((m) => m.role === 'tool')?.content).toBe('good');
   });
 });
 
@@ -171,10 +314,10 @@ describe('AgentLoop auto-compact on overflow', () => {
     expect(session.messages.length).toBeLessThan(32);
   });
 
-  it('emits session-compacted when cumulative threshold is hit', async () => {
+  it('emits session-compacted when current history crosses threshold', async () => {
     const config = defaultConfig();
     config.sessions.autoCompact = true;
-    config.sessions.autoCompactThreshold = 50;
+    config.sessions.autoCompactThreshold = 200;
     config.sessions.autoCompactRatio = 0.99;
 
     const store = new SessionStore({
@@ -182,12 +325,11 @@ describe('AgentLoop auto-compact on overflow', () => {
       indexPath: join(dir, 'sessions.index'),
     });
     const session = store.create({ mode: 'ask', cwd: dir, provider: 'mock', model: 'mock-1' });
-    session.tokenUsage.input = 40;
-    session.tokenUsage.output = 20;
-    for (let i = 0; i < 12; i++) {
+    // Need more messages than AUTO_COMPACT_KEEP_RECENT (24) so drop actually happens.
+    for (let i = 0; i < 40; i++) {
       session.messages.push({
         role: i % 2 === 0 ? 'user' : 'assistant',
-        content: `turn-${i}`,
+        content: `turn-${i}-`.repeat(40),
       });
     }
     store.save(session);
@@ -215,5 +357,51 @@ describe('AgentLoop auto-compact on overflow', () => {
     for await (const event of loop.run('hello')) events.push(event);
 
     expect(events.some((e) => e.type === 'session-compacted' && e.reason === 'threshold')).toBe(true);
+  });
+
+  it('does not compact every turn from lifetime tokenUsage alone', async () => {
+    const config = defaultConfig();
+    config.sessions.autoCompact = true;
+    config.sessions.autoCompactThreshold = 50;
+    config.sessions.autoCompactRatio = 0.99;
+
+    const store = new SessionStore({
+      dir: join(dir, 'sessions'),
+      indexPath: join(dir, 'sessions.index'),
+    });
+    const session = store.create({ mode: 'ask', cwd: dir, provider: 'mock', model: 'mock-1' });
+    // Simulate post-compact: huge lifetime usage, tiny history.
+    session.tokenUsage.input = 80_000;
+    session.tokenUsage.output = 20_000;
+    for (let i = 0; i < 8; i++) {
+      session.messages.push({
+        role: i % 2 === 0 ? 'user' : 'assistant',
+        content: `x${i}`,
+      });
+    }
+    store.save(session);
+
+    const provider = new MockProvider({ script: [{ text: 'ok' }] });
+    const policy = new Policy(config, session.sessionAllowlist);
+    const loop = new AgentLoop({
+      provider,
+      registry: new ToolRegistry(),
+      approver: new Approver({
+        policy,
+        audit: new AuditLog({ path: join(dir, 'audit.log') }),
+        yolo: true,
+      }),
+      policy,
+      session,
+      store,
+      config,
+      logger: nullLogger,
+    });
+
+    const events: AgentEvent[] = [];
+    for await (const event of loop.run('ping')) events.push(event);
+
+    expect(events.some((e) => e.type === 'session-compacted')).toBe(false);
+    expect(events.some((e) => e.type === 'turn-end')).toBe(true);
   });
 });
