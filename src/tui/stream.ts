@@ -13,6 +13,9 @@
 import { existsSync } from 'node:fs';
 
 export function isTermuxLike(env: NodeJS.ProcessEnv = process.env): boolean {
+  // Node built for Termux reports platform 'android' — the most reliable signal,
+  // set even when the shell strips TERMUX_/ANDROID_ env vars.
+  if (process.platform === 'android') return true;
   if (env.TERMUX_VERSION || env.TERMUX_APP__VERSION_NAME) return true;
   if (env.PREFIX && env.PREFIX.includes('com.termux')) return true;
   if (env.HOME && env.HOME.includes('/com.termux/')) return true;

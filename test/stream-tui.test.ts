@@ -32,6 +32,18 @@ describe('Termux UI mode', () => {
     expect(isTermuxLike({})).toBe(false);
   });
 
+  it('detects Termux via process.platform === "android" even with a bare env', () => {
+    const original = process.platform;
+    try {
+      Object.defineProperty(process, 'platform', { value: 'android', configurable: true });
+      // No TERMUX_/ANDROID_ vars at all — the platform signal alone is enough.
+      expect(isTermuxLike({})).toBe(true);
+      expect(preferSimpleTui({}, { isTTY: true })).toBe(true);
+    } finally {
+      Object.defineProperty(process, 'platform', { value: original, configurable: true });
+    }
+  });
+
   it('prefers simple TUI on Termux unless SKY_TUI=ink', () => {
     expect(preferSimpleTui({ TERMUX_VERSION: '1' })).toBe(true);
     expect(preferSimpleTui({ TERMUX_VERSION: '1', SKY_TUI: 'ink' })).toBe(false);
