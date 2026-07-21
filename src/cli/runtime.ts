@@ -45,6 +45,8 @@ export interface Runtime {
   skills: Skill[];
   /** Live MCP clients (connected best-effort). */
   mcpClients: McpClient[];
+  /** Set once `attachMcp` has run so it is not re-connected every turn. */
+  mcpAttached?: boolean;
 }
 
 /** Resolve the effective working directory (§4.2 --cwd). */
@@ -122,10 +124,15 @@ export function buildRuntime(options: GlobalOptions, requireExisting = true): Ru
 }
 
 /**
- * Connect configured MCP servers and register their tools. Call once before
- * starting a session (best-effort — failures are logged, not thrown).
+ * Connect configured MCP servers and register their tools. Idempotent: the
+ * interactive readline loop calls this once per turn, but re-spawning every
+ * server on each submission would leak child processes and duplicate tool
+ * registrations, so subsequent calls are no-ops (best-effort — failures are
+ * logged, not thrown).
  */
 export async function attachMcp(runtime: Runtime): Promise<void> {
+  if (runtime.mcpAttached) return;
+  runtime.mcpAttached = true;
   if (runtime.config.mcp.servers.length === 0) return;
   try {
     runtime.mcpClients = await connectAllMcp({

@@ -502,6 +502,7 @@ mutating commands inside the project cwd.
 | Provider SDK missing | `npm install openai` or `npm install @anthropic-ai/sdk` |
 | MCP test fails | Check `command`/`args` on PATH; run `sky mcp test <name>` |
 | TUI falls back to readline | Ink failed to load; check `npm install` / Node 20+ |
+| Input "staircases" as you type (Termux/Android) | Terminal cannot repaint in place — Sky auto-uses the line UI. Force it with `SKY_TUI=readline`; `SKY_TUI=ink` forces the full TUI only if your terminal supports rewrites |
 | Updates wanted | `sky update` or re-run `install.sh` |
 | Full diagnosis | `sky doctor` |
 

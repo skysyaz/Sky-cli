@@ -16,6 +16,10 @@
 - [x] Forge dashboard connect could not list repos — added `forge` tool (`status` / `whoami` / `repos` / `repo`).
 - [x] OpenCode `Upstream request failed` 400 mapped as hard `SKY-E-5010` — now retryable provider flake.
 
+### TUI / Termux
+- [x] `src/tui/stream.ts` — input "staircase" while typing (`s`→`sc`→`scan bug` on new lines). `preferSimpleTui` only checked Android env vars, so forced `SKY_TUI=ink` and proot-Android distros (UserLAnd/Andronix, which strip TERMUX_/ANDROID_ vars) still used Ink and stacked every keystroke. Now the line UI is chosen whenever the terminal cannot rewrite in place (`!supportsLiveStreamRewrite`), and `isTermuxLike` also detects Android via `/system/bin/sh` · `/system/build.prop`.
+- [x] `src/cli/runtime.ts` — `attachMcp` re-connected every MCP server on **every** readline-loop turn (`runTurn` calls it per submission), leaking child processes and re-registering tools. Now idempotent via `runtime.mcpAttached`.
+
 ### Shell / cost / dashboard / misc
 - [x] `src/safety/shell.ts` — pipe-to-shell denylist missed `| /bin/sh` and `| /usr/bin/bash`.
 - [x] `src/llm/cost.ts` — `MODEL_PRICING` only 4 models; palette models estimated $0. Expanded + prefix lookup.

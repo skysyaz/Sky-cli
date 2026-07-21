@@ -36,7 +36,19 @@ describe('Termux UI mode', () => {
     expect(preferSimpleTui({ TERMUX_VERSION: '1' })).toBe(true);
     expect(preferSimpleTui({ TERMUX_VERSION: '1', SKY_TUI: 'ink' })).toBe(false);
     expect(preferSimpleTui({ SKY_TUI: 'readline' })).toBe(true);
-    expect(preferSimpleTui({})).toBe(false);
+    expect(preferSimpleTui({}, { isTTY: true })).toBe(false);
+  });
+
+  it('prefers the line UI on any terminal that cannot rewrite in place', () => {
+    // The staircase-while-typing bug: a terminal that stacks stream frames also
+    // stacks the input box, so the line UI is the safe choice regardless of OS.
+    expect(preferSimpleTui({}, { isTTY: false })).toBe(true);
+    expect(preferSimpleTui({ CI: 'true' }, { isTTY: true })).toBe(true);
+    expect(preferSimpleTui({ SKY_TUI_LIVE_STREAM: '0' }, { isTTY: true })).toBe(true);
+    // …but an explicit SKY_TUI=ink still wins even there.
+    expect(preferSimpleTui({ SKY_TUI: 'ink', CI: 'true' }, { isTTY: false })).toBe(false);
+    // A capable interactive TTY keeps the full Ink TUI.
+    expect(preferSimpleTui({}, { isTTY: true })).toBe(false);
   });
 
   it('disables live stream rewrite on Termux', () => {

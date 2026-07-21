@@ -20,6 +20,10 @@ export function isTermuxLike(env: NodeJS.ProcessEnv = process.env): boolean {
   if (env.ANDROID_ROOT || env.ANDROID_DATA || env.ANDROID_STORAGE) return true;
   try {
     if (existsSync('/data/data/com.termux/files/usr')) return true;
+    // proot-based Android distros (UserLAnd, Andronix, …) strip the TERMUX_/
+    // ANDROID_ env vars but still run on an Android kernel with /system mounted.
+    // Those terminals cannot rewrite either, so treat them as Termux-like.
+    if (existsSync('/system/bin/sh') || existsSync('/system/build.prop')) return true;
   } catch {
     /* ignore */
   }
@@ -27,14 +31,23 @@ export function isTermuxLike(env: NodeJS.ProcessEnv = process.env): boolean {
 }
 
 /**
- * Prefer readline over Ink. Termux defaults to simple UI because Ink redraw
- * is broken there. `SKY_TUI=ink` forces Ink; `SKY_TUI=readline` forces simple.
+ * Prefer the readline line UI over Ink. Ink needs to rewrite the region below
+ * `<Static>` in place; on terminals that cannot (Termux, proot-Android, piped
+ * output), every keystroke repaints the input box as a **new** line — the
+ * "staircase" you get typing `scan bug`. Because that is the *same* capability
+ * the live stream needs, we key the choice off `supportsLiveStreamRewrite`
+ * rather than Android detection alone.
+ *
+ * `SKY_TUI=ink|full` forces Ink; `SKY_TUI=readline|simple|line` forces the line UI.
  */
-export function preferSimpleTui(env: NodeJS.ProcessEnv = process.env): boolean {
+export function preferSimpleTui(
+  env: NodeJS.ProcessEnv = process.env,
+  stdout: { isTTY?: boolean } = process.stdout,
+): boolean {
   const flag = (env.SKY_TUI ?? '').toLowerCase();
   if (flag === 'ink' || flag === 'full') return false;
   if (flag === 'readline' || flag === 'simple' || flag === 'line') return true;
-  return isTermuxLike(env);
+  return !supportsLiveStreamRewrite(env, stdout);
 }
 
 export function supportsLiveStreamRewrite(

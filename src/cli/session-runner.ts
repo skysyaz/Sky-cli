@@ -78,10 +78,11 @@ export async function runSession(options: RunSessionOptions): Promise<number> {
     }
   } else {
     runtime.logger.info('tui.simple', {
-      detail: 'Termux/Android detected — using line UI. Set SKY_TUI=ink to force full TUI.',
+      detail: 'Terminal cannot rewrite in place — using line UI. SKY_TUI=ink forces the full TUI.',
     });
     process.stderr.write(
-      'Sky: Termux UI mode (line input). Fix for duplicate boxes. Set SKY_TUI=ink for full TUI.\n',
+      'Sky: line-input mode (this terminal cannot repaint in place — avoids the input "staircase"). ' +
+        'SKY_TUI=ink forces the full TUI if your terminal supports it.\n',
     );
   }
   if (runTui) {
