@@ -60,10 +60,15 @@ export class AnthropicAdapter implements Provider {
     for (const m of messages) {
       if (m.role === 'system') continue;
       if (m.role === 'tool') {
-        out.push({
-          role: 'user',
-          content: [{ type: 'tool_result', tool_use_id: m.toolCallId, content: m.content }],
-        });
+        const block = { type: 'tool_result', tool_use_id: m.toolCallId, content: m.content };
+        // Anthropic requires alternating roles — merge consecutive tool results
+        // into a single user message with multiple tool_result blocks.
+        const prev = out[out.length - 1] as { role?: string; content?: unknown } | undefined;
+        if (prev && prev.role === 'user' && Array.isArray(prev.content)) {
+          (prev.content as unknown[]).push(block);
+        } else {
+          out.push({ role: 'user', content: [block] });
+        }
         continue;
       }
       if (m.role === 'assistant' && m.toolCalls?.length) {

@@ -13,6 +13,8 @@ export * as llm from './llm/index.js';
 export * as safety from './safety/index.js';
 export * as tools from './tools/index.js';
 export * as agent from './agent/index.js';
+export * as skills from './skills/index.js';
+export * as mcp from './mcp/index.js';
 
 // Commonly used entry points, re-exported flat for convenience.
 export { SkyError, ErrorCode } from './errors/index.js';

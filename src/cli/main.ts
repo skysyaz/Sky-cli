@@ -9,11 +9,12 @@ import {
   initCommand,
   configCommand,
   mcpCommand,
+  doctorCommand,
 } from './commands.js';
 import { updateCommand } from './update.js';
 import { pluginCommand } from './plugin.js';
 
-const VERSION = '1.0.0';
+const VERSION = '1.1.0';
 
 /** Extract merged global options from the root program (§4.2). */
 function globalOptions(program: Command): GlobalOptions {
@@ -55,7 +56,7 @@ function build(): Command {
     .option('-m, --model <model>', 'override the model for this run')
     .option(
       '-p, --provider <provider>',
-      'override the LLM provider (openai, anthropic, ollama, ollama-cloud, openrouter, zenmux, opencode, mock)',
+      'override the LLM provider (openai, anthropic, ollama, ollama-cloud, openrouter, zenmux, opencode, gemini, deepseek, groq, mock)',
     )
     .option('--yolo', 'auto-approve every tool call (CI only); implies --force')
     .option('--force', 'skip interactive confirmations but respect the denylist')
@@ -85,8 +86,14 @@ function build(): Command {
 
   program
     .command('ask [prompt]')
-    .description('read-only Q&A; no tools, no file mutation')
+    .description('read-only Q&A with read/search tools; no file mutation')
     .action((prompt: string | undefined) => run(() => startModeSession('ask', prompt, globalOptions(program))));
+
+  program
+    .command('doctor')
+    .alias('status')
+    .description('diagnose config, API keys, providers, skills, and MCP servers')
+    .action(() => run(() => doctorCommand(globalOptions(program))));
 
   program
     .command('resume [id] [followUp]')

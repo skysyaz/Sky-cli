@@ -1,4 +1,4 @@
-import { readFileSync, existsSync, writeFileSync, mkdirSync } from 'node:fs';
+import { readFileSync, existsSync, writeFileSync, mkdirSync, chmodSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { ZodError } from 'zod';
 import { ErrorCode, SkyError } from '../errors/index.js';
@@ -8,7 +8,14 @@ import { configSchema, parseConfig, defaultConfig, type SkyConfig } from './sche
 
 export * from './schema.js';
 export * from './paths.js';
-export { resolveApiKey } from './secrets.js';
+export {
+  resolveApiKey,
+  writeSecret,
+  readSecret,
+  clearSecret,
+  hasApiKey,
+  secretsPath,
+} from './secrets.js';
 
 /** Overrides supplied from the command line (precedence level 5 — highest). */
 export interface CliOverrides {
@@ -170,7 +177,12 @@ export function getConfigKey(config: SkyConfig, key: string): unknown {
 export function writeConfig(config: SkyConfig, path: string = configPath()): void {
   const validated = configSchema.parse(config);
   mkdirSync(dirname(path), { recursive: true });
-  writeFileSync(path, JSON.stringify(validated, null, 2) + '\n', 'utf8');
+  writeFileSync(path, JSON.stringify(validated, null, 2) + '\n', { encoding: 'utf8', mode: 0o600 });
+  try {
+    chmodSync(path, 0o600);
+  } catch {
+    // best-effort on platforms that ignore mode
+  }
 }
 
 /** Export the JSON Schema so editors can offer autocomplete (§7.5). */

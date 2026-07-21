@@ -98,7 +98,7 @@ export class OpenAiAdapter implements Provider {
         temperature: request.temperature,
         stream: true,
         ...(this.options.includeUsage === false ? {} : { stream_options: { include_usage: true } }),
-      });
+      }, request.signal ? { signal: request.signal } : undefined);
     } catch (error) {
       throw providerErrorFromStatus((error as { status?: number }).status, (error as Error).message, error);
     }

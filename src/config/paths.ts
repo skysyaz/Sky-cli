@@ -58,3 +58,11 @@ export function installedPluginsDir(): string {
 export function pluginsStatePath(): string {
   return join(pluginsDir(), 'plugins.json');
 }
+
+export function skillsDir(): string {
+  return join(skyHome(), 'skills');
+}
+
+export function secretsFilePath(): string {
+  return join(skyHome(), 'secrets.json');
+}

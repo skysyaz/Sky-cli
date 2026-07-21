@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync, rmSync, readFileSync } from 'node:fs';
+import { mkdtempSync, rmSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { AgentLoop } from '../src/agent/loop.js';
@@ -86,14 +86,33 @@ describe('AgentLoop (§2.4.1)', () => {
     expect(reloaded.lastTurnInterrupted).toBe(false);
   });
 
-  it('rejects a tool call in plan mode (SKY-E-2010)', async () => {
+  it('rejects a mutating tool call in plan mode', async () => {
     const provider = new MockProvider({
-      script: [{ toolCalls: [{ id: 'c1', name: 'write', input: { path: 'x', content: 'y' } }] }],
+      script: [
+        { toolCalls: [{ id: 'c1', name: 'write', input: { path: 'x', content: 'y' } }] },
+        { text: 'here is the plan instead' },
+      ],
     });
-    const { loop } = makeLoop(provider, 'plan');
+    const { loop } = makeLoop(provider, 'plan', { yolo: true });
     const events = await collect(loop.run('do it'));
-    const error = events.find((e) => e.type === 'error');
-    expect(error && (error as any).error.code).toBe('SKY-E-2010');
+    const result = events.find((e) => e.type === 'tool-result');
+    expect(result && (result as any).ok).toBe(false);
+    expect((result as any).output).toMatch(/read-only/i);
+  });
+
+  it('allows read tools in ask mode', async () => {
+    writeFileSync(join(dir, 'readme.md'), '# hello sky');
+    const provider = new MockProvider({
+      script: [
+        { toolCalls: [{ id: 'c1', name: 'read', input: { path: 'readme.md' } }] },
+        { text: 'The readme says hello sky.' },
+      ],
+    });
+    const { loop } = makeLoop(provider, 'ask', { yolo: true });
+    const events = await collect(loop.run('what is in readme?'));
+    const result = events.find((e) => e.type === 'tool-result');
+    expect(result && (result as any).ok).toBe(true);
+    expect((result as any).output).toContain('hello sky');
   });
 
   it('surfaces a denied tool call without applying it', async () => {

@@ -149,11 +149,13 @@ describe('Ink TUI', () => {
     const config = defaultConfig();
     const store = new SessionStore({ dir: join(dir, 'sessions'), indexPath: join(dir, 'sessions.index') });
     const session = store.create({ mode: 'agent', cwd: dir, provider: 'zenmux', model: 'x-ai/grok-4.5-free' });
+    const { readSecret } = await import('../src/config/secrets.js');
     const { stdin, lastFrame, unmount } = render(
       React.createElement(App, {
-        // Provider succeeds only once a key is present in config (mimics real resolution).
+        // Provider succeeds once a key is present in the secrets file (or config).
         makeProvider: (name: string) => {
-          if (name === 'zenmux' && !config.providers[name]?.apiKey) throw new SkyError(ErrorCode.NoApiKey, { name });
+          const hasKey = Boolean(config.providers[name]?.apiKey) || Boolean(readSecret(name));
+          if (name === 'zenmux' && !hasKey) throw new SkyError(ErrorCode.NoApiKey, { name });
           return new MockProvider();
         },
         registry: new ToolRegistry(),
@@ -169,8 +171,9 @@ describe('Ink TUI', () => {
     await delay();
     stdin.write('\r');
     await delay(80);
-    expect(strip(lastFrame() ?? '')).toContain('API key saved for zenmux');
-    expect(config.providers.zenmux?.apiKey).toBe('sk-live-test-key');
+    expect(strip(lastFrame() ?? '')).toContain('API key saved securely for zenmux');
+    expect(readSecret('zenmux')).toBe('sk-live-test-key');
+    expect(config.providers.zenmux?.apiKey).toBeUndefined();
     unmount();
     delete process.env.SKY_HOME;
   });

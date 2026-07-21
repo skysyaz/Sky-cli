@@ -2,7 +2,7 @@ import { readFileSync, statSync, existsSync } from 'node:fs';
 import { z } from 'zod';
 import { ErrorCode } from '../errors/index.js';
 import type { Tool, ToolContext, ToolResult } from './types.js';
-import { resolveInCwd } from './paths.js';
+import { resolveInCwd, isInsideCwd } from './paths.js';
 
 const schema = z.object({
   path: z.string(),
@@ -23,6 +23,10 @@ function looksBinary(buffer: Buffer): boolean {
  * The `read` tool (§6.2). Reads a file relative to cwd. Binary files return a
  * metadata placeholder; large files are truncated with a notice; `offset`/`limit`
  * select a line range.
+ *
+ * Inside-cwd reads are treated as safe by the tool predicate (policy denylist
+ * for `.env*` / keys still wins). Outside-cwd reads require approval and are
+ * refused unless `tools.write.allowOutsideCwd` is set.
  */
 export const readTool: Tool<Input> = {
   name: 'read',
@@ -37,12 +41,21 @@ export const readTool: Tool<Input> = {
     },
     required: ['path'],
   },
-  requiresApproval() {
-    // Reads are gated by the policy engine (deny/allow globs), not a predicate.
-    return true;
+  requiresApproval(input: Input) {
+    // Absolute / parent escapes need a prompt; in-cwd reads are auto-safe
+    // (subject to the read denylist in policy).
+    return input.path.startsWith('..') || input.path.startsWith('/') || /^[A-Za-z]:[\\/]/.test(input.path);
   },
   async execute(input: Input, ctx: ToolContext): Promise<ToolResult> {
     const abs = resolveInCwd(ctx.cwd, input.path);
+    if (!ctx.config.tools.write.allowOutsideCwd && !isInsideCwd(ctx.cwd, abs)) {
+      return {
+        ok: false,
+        output: `Read refused: ${input.path} is outside the working directory.`,
+        code: ErrorCode.WritePathOutsideCwd,
+        retryable: true,
+      };
+    }
     if (!existsSync(abs)) {
       return { ok: false, output: `File not found: ${input.path}`, code: ErrorCode.ToolInputInvalid, retryable: true };
     }

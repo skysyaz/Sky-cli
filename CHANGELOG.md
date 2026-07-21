@@ -4,6 +4,35 @@ All notable changes to Sky are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project adheres
 to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.0] - 2026-07-21
+
+### Added
+- **MCP runtime** — live stdio JSON-RPC client; tools register as `mcp__<server>__<tool>`; `sky mcp test` probes connectivity.
+- **Skills** — load `SKILL.md` from `~/.sky/skills`, `.sky/skills`, and plugin `skills/` into the system prompt.
+- **Providers** — Gemini, DeepSeek, and Groq (OpenAI-compatible); custom `baseUrl` providers supported.
+- **`sky doctor`** (`sky status`) — diagnoses Node, config, API keys, SDKs, plugins, skills, and MCP.
+- **`/status`** slash command — session, tools, plugins, skills, MCP overview in the TUI.
+- **Secure `/key`** — writes to `~/.sky/secrets.json` (mode `0600`) instead of plaintext `config.json`.
+- Ask/plan modes now get **read + search** tools for codebase Q&A and planning.
+
+### Fixed
+- **`edit` sandbox** — refused writes outside cwd (same as `write`).
+- **`search` / `read` sandbox** — absolute/`..` paths no longer auto-scrape the host filesystem.
+- **Write/edit preview** — no longer leaks outside-cwd file contents into the approval UI.
+- **Shell denylist** — blocks `rm --recursive --force /`, pipe-to-shell, `mkfs`/`dd of=/dev/`; no longer false-positives `rm -rf /tmp`.
+- **Approval `[e]dit`** — no longer silently granted without edited content.
+- **Anthropic tool results** — consecutive tool results merge into one user message (role alternation).
+- **OpenCode** — hosted gateway correctly requires an API key.
+- **Invalid `--since`** — errors instead of silently returning empty `sky ls` results.
+- **Streaming abort** — OpenAI adapter passes `AbortSignal` into the HTTP request.
+- Config files written with mode `0600`.
+
+### Changed
+- In-cwd `read` is auto-approved by default (secret denylist still wins).
+- `/compact` actually trims session history; auto-compact still runs past the token threshold.
+- Provider fallback (`providers.*.fallback`) is consulted after repeated stream failures.
+- Version bumped to **1.1.0**.
+
 ## [1.0.0] - 2026-07-12
 
 ### Added
