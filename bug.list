@@ -1,0 +1,47 @@
+# Sky-cli bug.list
+# Full codebase bug scan — status as of 2026-07-21 (main).
+# Ask the agent: "read bug.list" or "summarize open bugs from bug.list".
+
+## Fixed (on main)
+
+### Allowlist / secrets / edit
+- [x] `src/safety/policy.ts` — "always approve" broken for cwd-root files (`README.md` → `./**/*.ext` never matched). Now derives `**/*.ext`.
+- [x] `src/config/schema.ts` — secret denylist root-only (`.env*`, `*.pem`, …). Now `**/`-prefixed so `packages/app/.env` is denied.
+- [x] `src/tools/edit.ts` — success message reported match count, not replaced count when `occurrences` < matches.
+
+### Agent / compact / forge
+- [x] `src/agent/loop.ts` — provider fallback never rebuilt the adapter (model name only). Now calls `createProvider` on fallback.
+- [x] `src/agent/loop.ts` — `SKY-E-2003` hard-killed long audits at 25 tool rounds. Default `sessions.maxIterations` = 60; soft wrap-up summary instead of error.
+- [x] `src/session/compact.ts` — auto-compact used lifetime `tokenUsage` → perpetual explore→forget loop. Triggers on current history only; protects recent tool results.
+- [x] Forge dashboard connect could not list repos — added `forge` tool (`status` / `whoami` / `repos` / `repo`).
+- [x] OpenCode `Upstream request failed` 400 mapped as hard `SKY-E-5010` — now retryable provider flake.
+
+### Shell / cost / dashboard / misc
+- [x] `src/safety/shell.ts` — pipe-to-shell denylist missed `| /bin/sh` and `| /usr/bin/bash`.
+- [x] `src/llm/cost.ts` — `MODEL_PRICING` only 4 models; palette models estimated $0. Expanded + prefix lookup.
+- [x] `src/session/store.ts` — corrupt interior index line tolerated when file lacked trailing `\n`.
+- [x] `src/safety/glob.ts` — `matchCommandPattern` did not escape `?` (treated as regex quantifier).
+- [x] `src/cli/dashboard.ts` — `DELETE /api/forge/default` deleted a forge named `default` instead of clearing the default pointer.
+- [x] `src/cli/dashboard.ts` — forge writes via `loadConfig({ cwd })` persisted project `.skyrc` into `~/.sky/config.json`. Now `skipProject`.
+- [x] `src/cli/prompter.ts` — empty Enter defaulted to approve. Now denies.
+- [x] `src/skills/loader.ts` — frontmatter close via `indexOf('---', 3)` broke on `----`. Line-bounded `---` required.
+- [x] `src/tools/git.ts` — `log` passed non-numeric `args[0]` to `-n`. Sanitized to positive int or `10`.
+
+## Open / watch
+
+_(none from the 2026-07-21 scan — all correctness + edge cases above landed on main.)_
+
+## Notes (not bugs)
+
+- `src/safety/glob.ts` — `matchGlob` compiled the same regex twice (perf; mitigated).
+- `src/llm/context.ts` — Pass 2 recomputes token counts each iteration (O(n²), fine at current sizes).
+- Free OpenCode flash models still over-explore; prefer targeted prompts (`bugs in src/safety only`) and `/new` after heavy compact.
+
+## How to re-scan
+
+```text
+/new
+Audit src/safety and src/agent for bugs. List as bullets. Do not re-read the whole repo.
+```
+
+Or: `read bug.list` then continue from **Open / watch**.
