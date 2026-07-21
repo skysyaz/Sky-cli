@@ -8,6 +8,7 @@ import {
   estimateMessageTokens,
   contextBudget,
   overflowKeepRecent,
+  sanitizeToolTurns,
 } from '../src/session/compact.js';
 import type { Message } from '../src/session/types.js';
 import { AgentLoop } from '../src/agent/loop.js';
@@ -157,6 +158,92 @@ describe('session compact helpers', () => {
     expect(overflowKeepRecent(0)).toBe(12);
     expect(overflowKeepRecent(1)).toBe(6);
     expect(overflowKeepRecent(2)).toBe(3);
+  });
+
+  it('counts toolCalls in token estimates', () => {
+    const withCalls: Message[] = [
+      {
+        role: 'assistant',
+        content: 'calling',
+        toolCalls: [{ id: '1', name: 'read', input: { path: 'a.ts' } }],
+      },
+    ];
+    const plain: Message[] = [{ role: 'assistant', content: 'calling' }];
+    expect(estimateMessageTokens(withCalls)).toBeGreaterThan(estimateMessageTokens(plain));
+  });
+
+  it('respects autoCompact=false and zero budget', () => {
+    const messages: Message[] = Array.from({ length: 8 }, (_, i) => ({
+      role: (i % 2 === 0 ? 'user' : 'assistant') as Message['role'],
+      content: 'z'.repeat(5000),
+    }));
+    expect(
+      shouldAutoCompact({
+        messages,
+        limits: { contextWindow: 128_000, maxOutput: 4096 },
+        autoCompact: false,
+        autoCompactThreshold: 1,
+        autoCompactRatio: 0.1,
+      }),
+    ).toBe(false);
+    expect(
+      shouldAutoCompact({
+        messages,
+        limits: { contextWindow: 100, maxOutput: 200 },
+        autoCompact: true,
+        autoCompactThreshold: 999_999,
+        autoCompactRatio: 0.99,
+      }),
+    ).toBe(true);
+  });
+
+  it('snaps compact window off orphan leading tool messages', () => {
+    const messages: Message[] = [
+      { role: 'user', content: 'u0' },
+      { role: 'assistant', content: 'a0' },
+      { role: 'tool', content: 'orphan-tool', toolCallId: 't0', name: 'read' },
+      { role: 'user', content: 'u1' },
+      { role: 'assistant', content: 'a1' },
+      { role: 'tool', content: 'kept-tool', toolCallId: 't1', name: 'read' },
+    ];
+    // keepRecent=2 starts on the last tool; snap-back should include assistant.
+    const result = compactSessionMessages(messages, { keepRecent: 2, reason: 'manual' });
+    expect(result.messages.some((m) => m.role === 'tool' && m.content === 'orphan-tool')).toBe(
+      false,
+    );
+    expect(result.messages.some((m) => m.content === 'a1')).toBe(true);
+  });
+
+  it('wipes tool body entirely when stubMaxChars is 0', () => {
+    const messages: Message[] = [
+      { role: 'user', content: 'hi' },
+      { role: 'tool', content: 'secret-payload', toolCallId: 't1', name: 'read' },
+    ];
+    const result = compactSessionMessages(messages, {
+      keepRecent: 8,
+      stubToolResults: true,
+      stubMaxChars: 0,
+      reason: 'ratio',
+    });
+    const tool = result.messages.find((m) => m.role === 'tool');
+    expect(tool?.content).toMatch(/^\[tool result trimmed]/);
+    expect(tool?.content).not.toContain('secret-payload');
+  });
+
+  it('sanitizeToolTurns drops orphan tool messages', () => {
+    const cleaned = sanitizeToolTurns([
+      { role: 'user', content: 'hi' },
+      {
+        role: 'assistant',
+        content: '',
+        toolCalls: [{ id: 'ok', name: 'read', input: {} }],
+      },
+      { role: 'tool', content: 'good', toolCallId: 'ok', name: 'read' },
+      { role: 'tool', content: 'orphan', toolCallId: 'missing', name: 'read' },
+      { role: 'assistant', content: 'done' },
+    ]);
+    expect(cleaned.filter((m) => m.role === 'tool')).toHaveLength(1);
+    expect(cleaned.find((m) => m.role === 'tool')?.content).toBe('good');
   });
 });
 
