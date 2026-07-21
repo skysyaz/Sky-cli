@@ -16,16 +16,29 @@ import { providerAuthHint } from './provider-auth.js';
  *   6. OpenCode Zen guest token `"public"` (free models only; no account needed)
  *   7. otherwise fail with SKY-E-1002
  *
- * `mock` and local `ollama` never require a key. OpenCode Zen free models work
- * with the public guest token; set `OPENCODE_API_KEY` for paid Zen models.
+ * `mock` and local `ollama` never require a key. OpenCode Zen **free** models
+ * always use the guest token `"public"` so a stale `/key` or `OPENCODE_API_KEY`
+ * cannot cause SKY-E-5011 on `*-free` models. Paid Zen models still use
+ * `OPENCODE_API_KEY` / `/key`.
  */
 export function resolveApiKey(
   providerName: string,
   providerConfig: ProviderConfig | undefined,
   logger?: Logger,
   env: NodeJS.ProcessEnv = process.env,
+  opts: { model?: string } = {},
 ): string {
   if (providerName === 'mock' || providerName === 'ollama') return '';
+
+  // Free OpenCode models: always guest token. A bad stored OPENCODE_API_KEY is
+  // the usual cause of SKY-E-5011 on deepseek-v4-flash-free etc.
+  if (providerName === 'opencode' && isOpenCodeFreeModel(opts.model ?? providerConfig?.defaultModel)) {
+    logger?.info('config.apiKey.opencodePublic', {
+      model: opts.model ?? providerConfig?.defaultModel,
+      hint: 'Using OpenCode Zen public guest token for free models.',
+    });
+    return 'public';
+  }
 
   if (providerConfig?.apiKey) {
     logger?.warn('config.apiKey.literal', {
@@ -52,11 +65,10 @@ export function resolveApiKey(
   const wellKnown = WELL_KNOWN_ENV[providerName];
   if (wellKnown && env[wellKnown]) return env[wellKnown]!;
 
-  // OpenCode Zen free models (e.g. deepseek-v4-flash-free) accept the public
-  // guest token with no account. Paid models still need OPENCODE_API_KEY.
+  // OpenCode paid models without a key: still try guest (some gateways allow it).
   if (providerName === 'opencode') {
     logger?.info('config.apiKey.opencodePublic', {
-      hint: 'Using OpenCode Zen public guest token for free models. Set OPENCODE_API_KEY (or /key) for paid models.',
+      hint: 'No OPENCODE_API_KEY — using guest token. Paid models need a Zen key from https://opencode.ai/auth',
     });
     return 'public';
   }
@@ -166,3 +178,9 @@ export const OPENCODE_FREE_MODELS = [
   'nemotron-3-ultra-free',
   'big-pickle',
 ] as const;
+
+export function isOpenCodeFreeModel(model: string | undefined): boolean {
+  if (!model) return false;
+  if ((OPENCODE_FREE_MODELS as readonly string[]).includes(model)) return true;
+  return model.endsWith('-free');
+}

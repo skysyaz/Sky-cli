@@ -122,8 +122,26 @@ describe('secret resolution (§7.7)', () => {
   it('uses the public guest token for opencode when no key is set', () => {
     expect(resolveApiKey('opencode', undefined, undefined, {})).toBe('public');
   });
+  it('uses guest token for free models even when OPENCODE_API_KEY is set', () => {
+    expect(
+      resolveApiKey('opencode', { defaultModel: 'deepseek-v4-flash-free' }, undefined, {
+        OPENCODE_API_KEY: 'sk-stale-bad-key',
+      }, { model: 'deepseek-v4-flash-free' }),
+    ).toBe('public');
+  });
   it('still prefers OPENCODE_API_KEY when set', () => {
     expect(resolveApiKey('opencode', undefined, undefined, { OPENCODE_API_KEY: 'sk-zen' })).toBe('sk-zen');
+  });
+  it('prefers OPENCODE_API_KEY for paid models', () => {
+    expect(
+      resolveApiKey(
+        'opencode',
+        { defaultModel: 'minimax-m2.5' },
+        undefined,
+        { OPENCODE_API_KEY: 'sk-zen' },
+        { model: 'minimax-m2.5' },
+      ),
+    ).toBe('sk-zen');
   });
   it('explains how to get a free key for qwen-web', async () => {
     const { providerAuthSetupCard, providerAuthHint } = await import('../src/config/provider-auth.js');

@@ -141,12 +141,24 @@ export async function attachMcp(runtime: Runtime): Promise<void> {
 /** Instantiate the configured provider. */
 export function makeProvider(runtime: Runtime, options: GlobalOptions): Provider {
   const providerName = options.provider ?? runtime.config.defaultProvider;
-  return createProvider({ config: runtime.config, provider: providerName, logger: runtime.logger });
+  const model =
+    options.model ?? runtime.config.providers[providerName]?.defaultModel ?? runtime.config.defaultModel;
+  return createProvider({
+    config: runtime.config,
+    provider: providerName,
+    logger: runtime.logger,
+    model,
+  });
 }
 
 /** Instantiate a provider by name (used by the TUI to switch providers live). */
-export function makeProviderByName(runtime: Runtime, providerName: string): Provider {
-  return createProvider({ config: runtime.config, provider: providerName, logger: runtime.logger });
+export function makeProviderByName(runtime: Runtime, providerName: string, model?: string): Provider {
+  return createProvider({
+    config: runtime.config,
+    provider: providerName,
+    logger: runtime.logger,
+    model: model ?? runtime.config.providers[providerName]?.defaultModel,
+  });
 }
 
 /** Build the safety Approver for a run, wiring flags and the interactive prompter. */

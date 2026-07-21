@@ -16,9 +16,9 @@ describe('error catalog', () => {
     expect(err.retryable).toBe(false);
   });
 
-  it('leaves unknown placeholders intact', () => {
+  it('omits unset placeholders', () => {
     const err = new SkyError(ErrorCode.UnknownModel, { name: 'x' });
-    expect(err.message).toContain('{provider}');
+    expect(err.message).toBe('Unknown model: x for provider ');
   });
 
   it('marks provider rate-limit as retryable with exit 66', () => {
@@ -38,5 +38,12 @@ describe('error catalog', () => {
   it('produces a bracketed user message', () => {
     const err = new SkyError(ErrorCode.ProviderAuthFailed);
     expect(err.toUserMessage()).toBe('[SKY-E-5011] Provider authentication failed (401)');
+  });
+
+  it('includes OpenCode auth hint on 401 detail', () => {
+    const err = new SkyError(ErrorCode.ProviderAuthFailed, {
+      detail: ' — clear stale key with /keys clear opencode',
+    });
+    expect(err.toUserMessage()).toContain('/keys clear opencode');
   });
 });

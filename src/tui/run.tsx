@@ -12,7 +12,7 @@ import type { Skill } from '../skills/index.js';
 import { App } from './App.js';
 
 export interface RunTuiOptions {
-  makeProvider: (providerName: string) => Provider;
+  makeProvider: (providerName: string, model?: string) => Provider;
   registry: ToolRegistry;
   session: Session;
   store: SessionStore | AnySessionStore;

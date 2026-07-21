@@ -41,7 +41,7 @@ export interface AppProps {
   /** Lazily create a provider by name so a config error (e.g. missing API key)
    *  shows as an in-UI error instead of preventing the TUI from mounting, and so
    *  `/provider` can switch providers live. */
-  makeProvider: (providerName: string) => Provider;
+  makeProvider: (providerName: string, model?: string) => Provider;
   registry: ToolRegistry;
   session: Session;
   store: SessionStore | AnySessionStore;
@@ -156,7 +156,7 @@ export function App(props: AppProps): React.ReactElement {
   /** Build the provider for a given name, updating state; shows errors in-UI. */
   function buildProvider(name: string, opts: { quiet?: boolean } = {}): Provider | null {
     try {
-      const created = props.makeProvider(name);
+      const created = props.makeProvider(name, sessionRef.current.model);
       setProvider(created);
       return created;
     } catch (error) {
