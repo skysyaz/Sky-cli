@@ -41,4 +41,34 @@ describe('plugin-status helpers', () => {
     expect(formatPluginStatusLabel(['ponytail'])).toBe('pl:ponytail');
     expect(formatPluginStatusLabel(['a', 'b', 'c', 'd'], 3)).toBe('pl:a,b,c+1');
   });
+
+  it('colors plugins cyan while the agent is working', async () => {
+    const { pluginStatusColor, pluginStatusText } = await import('../src/tui/plugin-status.js');
+    expect(
+      pluginStatusColor({
+        activePlugin: null,
+        pluginsHighlight: false,
+        busy: true,
+        hasPlugins: true,
+      }),
+    ).toBe('cyan');
+    expect(
+      pluginStatusColor({
+        activePlugin: 'ponytail',
+        pluginsHighlight: false,
+        busy: true,
+        hasPlugins: true,
+      }),
+    ).toBe('cyan');
+    expect(
+      pluginStatusColor({
+        activePlugin: null,
+        pluginsHighlight: false,
+        busy: false,
+        hasPlugins: true,
+      }),
+    ).toBe('gray');
+    expect(pluginStatusText(['ponytail'], 'ponytail')).toBe('pl:ponytail●');
+    expect(pluginStatusText(['ponytail'], null)).toBe('pl:ponytail');
+  });
 });

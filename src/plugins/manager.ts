@@ -329,6 +329,7 @@ const RESERVED_SLASH_NAMES = new Set([
   'compact',
   'new',
   'reset',
+  'yolo',
   'plugin',
   'clear',
   'exit',
