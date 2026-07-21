@@ -151,6 +151,11 @@ Started automatically when your terminal is interactive (not `--json`).
 /compact                         # drop old turns (auto-compact also runs on fill/overflow)
 /new                             # fresh session — previous stays on disk (`sky resume …`)
 /reset                           # alias for /new
+/yolo on                         # auto-approve tools this session
+/yolo off                        # restore approval prompts
+# Typing "yolo" as a chat message does NOT enable YOLO — use /yolo or:
+#   sky --yolo
+#   sky yolo
 /plugin marketplace add owner/repo
 /plugin install name@marketplace
 /plugin list
@@ -161,6 +166,9 @@ Started automatically when your terminal is interactive (not `--json`).
 Long sessions stay usable: Sky auto-compacts when estimated history fills ~55% of the
 model budget (or past `sessions.autoCompactThreshold`), and again if a turn still
 hits the context limit. Use `/new` anytime you want a clean slate without quitting.
+
+**Approvals:** agent mode still asks before shell/writes unless you enable YOLO
+(`sky --yolo`, `sky yolo`, or `/yolo on`). Hard denylist always wins.
 ---
 
 ## 4. Choosing a provider

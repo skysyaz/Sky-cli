@@ -41,3 +41,31 @@ export function formatPluginStatusLabel(pluginNames: string[], max = 3): string 
   if (pluginNames.length <= max) return `pl:${pluginNames.join(',')}`;
   return `pl:${pluginNames.slice(0, max).join(',')}+${pluginNames.length - max}`;
 }
+
+/**
+ * Color for the plugin status chip.
+ * - cyan + ● when a specific plugin owns the current tool/command
+ * - cyan while the agent is working and plugins are loaded (visible on Termux)
+ * - yellow briefly after a plugin reload
+ * - gray when idle
+ */
+export function pluginStatusColor(options: {
+  activePlugin: string | null;
+  pluginsHighlight: boolean;
+  busy: boolean;
+  hasPlugins: boolean;
+}): 'cyan' | 'yellow' | 'gray' {
+  if (options.activePlugin) return 'cyan';
+  if (options.pluginsHighlight) return 'yellow';
+  if (options.busy && options.hasPlugins) return 'cyan';
+  return 'gray';
+}
+
+/** Status-bar text for plugins (active gets a ● marker). */
+export function pluginStatusText(
+  pluginNames: string[],
+  activePlugin: string | null,
+): string {
+  if (activePlugin) return `pl:${activePlugin}●`;
+  return formatPluginStatusLabel(pluginNames);
+}

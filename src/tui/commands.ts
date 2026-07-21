@@ -116,6 +116,11 @@ export const SLASH_COMMANDS: SlashCommand[] = [
   { name: 'new', description: 'Start a fresh session (keeps previous on disk)' },
   { name: 'reset', description: 'Alias for /new' },
   {
+    name: 'yolo',
+    description: 'Auto-approve tools this session (on|off|toggle)',
+    args: ['on', 'off', 'toggle'],
+  },
+  {
     name: 'plugin',
     description: 'Manage plugins',
     args: ['marketplace', 'search', 'install', 'list', 'uninstall'],
