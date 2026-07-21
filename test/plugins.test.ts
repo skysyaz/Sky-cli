@@ -71,12 +71,39 @@ describe('PluginManager', () => {
     await manager.install('ponytail@ponytail');
     const loaded = manager.load();
     expect(loaded).toHaveLength(1);
-    expect(loaded[0].commands.map((c) => c.name)).toEqual(['ponytail:create']);
-    expect(loaded[0].commands[0].description).toBe('Create a new worktree');
+    expect(loaded[0].commands.map((c) => c.name).sort()).toEqual(['create', 'ponytail:create']);
+    expect(loaded[0].commands.find((c) => c.name === 'ponytail:create')!.description).toBe(
+      'Create a new worktree',
+    );
     expect(loaded[0].commands[0].body).toContain('Create a git worktree');
     expect(loaded[0].mcpServers).toEqual([
       { name: 'ponytail', command: 'node', args: ['server.js'], env: { PONY: '1' } },
     ]);
+  });
+
+  it('loads .toml Claude-style commands with short aliases', async () => {
+    writeFileSync(
+      join(marketSrc, 'commands', 'ponytail.toml'),
+      'description = "Switch intensity"\nprompt = "Switch to ponytail {{args}} mode."\n',
+    );
+    writeFileSync(
+      join(marketSrc, 'commands', 'ponytail-help.toml'),
+      'description = "Help card"\nprompt = "Show ponytail help."\n',
+    );
+    await manager.addMarketplace(marketSrc);
+    await manager.install('ponytail@ponytail');
+    const names = manager.load()[0]!.commands.map((c) => c.name).sort();
+    expect(names).toEqual([
+      'create',
+      'ponytail',
+      'ponytail-help',
+      'ponytail:create',
+      'ponytail:ponytail',
+      'ponytail:ponytail-help',
+    ]);
+    const { applyCommandArgs, parseCommandToml } = await import('../src/plugins/index.js');
+    expect(parseCommandToml('description = "d"\nprompt = "Go {{args}}"').prompt).toBe('Go {{args}}');
+    expect(applyCommandArgs('Go {{args}}', 'ultra')).toBe('Go ultra');
   });
 
   it('uninstalls a plugin', async () => {

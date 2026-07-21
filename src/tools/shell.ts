@@ -41,7 +41,8 @@ export const shellTool: Tool<Input> = {
         timeout,
         reject: false,
         env: { ...process.env, ...ctx.config.tools.shell.env },
-        signal: ctx.signal,
+        // execa v9+: AbortSignal is `cancelSignal` (not `signal`).
+        ...(ctx.signal ? { cancelSignal: ctx.signal } : {}),
       });
       if (result.timedOut) {
         return { ok: false, output: `Command timed out after ${timeout}ms.`, code: ErrorCode.ShellTimeout };

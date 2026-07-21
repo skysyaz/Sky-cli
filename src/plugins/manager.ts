@@ -254,15 +254,42 @@ export class PluginManager {
     const commandsDir = join(dir, 'commands');
     if (!existsSync(commandsDir)) return [];
     const out: PluginCommand[] = [];
+    const seen = new Set<string>();
+
+    const add = (name: string, description: string, body: string): void => {
+      if (!name || seen.has(name)) return;
+      seen.add(name);
+      out.push({ name, description, body });
+    };
+
     for (const file of readdirSync(commandsDir)) {
-      if (!file.endsWith('.md')) continue;
-      const body = readFileSync(join(commandsDir, file), 'utf8');
-      const base = file.replace(/\.md$/, '');
-      out.push({
-        name: `${pluginName}:${base}`,
-        description: extractDescription(body) ?? `${pluginName} command`,
-        body: stripFrontmatter(body).trim(),
-      });
+      const full = join(commandsDir, file);
+      let base = '';
+      let description = `${pluginName} command`;
+      let body = '';
+
+      if (file.endsWith('.md')) {
+        base = file.replace(/\.md$/, '');
+        const raw = readFileSync(full, 'utf8');
+        description = extractDescription(raw) ?? description;
+        body = stripFrontmatter(raw).trim();
+      } else if (file.endsWith('.toml')) {
+        // Claude Code / Copilot-style command files (e.g. ponytail's commands/*.toml).
+        base = file.replace(/\.toml$/, '');
+        const parsed = parseCommandToml(readFileSync(full, 'utf8'));
+        if (!parsed.prompt) continue;
+        description = parsed.description || description;
+        body = parsed.prompt;
+      } else {
+        continue;
+      }
+
+      // Namespaced form always: /ponytail:ponytail-review
+      add(`${pluginName}:${base}`, description, body);
+      // Short Claude-style form when it doesn't collide: /ponytail, /ponytail-review
+      if (!RESERVED_SLASH_NAMES.has(base)) {
+        add(base, description, body);
+      }
     }
     return out;
   }
@@ -285,6 +312,52 @@ export class PluginManager {
       return [];
     }
   }
+}
+
+/** Builtin slash names that plugin short-aliases must not override. */
+const RESERVED_SLASH_NAMES = new Set([
+  'help',
+  'mode',
+  'model',
+  'provider',
+  'key',
+  'status',
+  'cost',
+  'diff',
+  'compact',
+  'plugin',
+  'clear',
+  'exit',
+]);
+
+/**
+ * Minimal TOML reader for Claude-style command files:
+ *   description = "..."
+ *   prompt = "..."
+ * Supports basic escaped quotes; enough for marketplace command.toml files.
+ */
+export function parseCommandToml(raw: string): { description?: string; prompt?: string } {
+  const out: { description?: string; prompt?: string } = {};
+  const re = /^(description|prompt)\s*=\s*("(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*')\s*$/gm;
+  let match: RegExpExecArray | null;
+  while ((match = re.exec(raw)) !== null) {
+    const key = match[1] as 'description' | 'prompt';
+    const quoted = match[2]!;
+    const unquoted = quoted.slice(1, -1).replace(/\\([\\'"n])/g, (_, ch: string) => {
+      if (ch === 'n') return '\n';
+      return ch;
+    });
+    out[key] = unquoted;
+  }
+  return out;
+}
+
+/** Substitute `{{args}}` / `$ARGUMENTS` placeholders in a plugin command body. */
+export function applyCommandArgs(body: string, args = ''): string {
+  return body
+    .replace(/\{\{\s*args\s*\}\}/gi, args)
+    .replace(/\$ARGUMENTS/g, args)
+    .trim();
 }
 
 /** Parse a `plugin@marketplace` install spec. */

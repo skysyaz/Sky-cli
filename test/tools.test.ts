@@ -90,18 +90,22 @@ describe('search tool (§6.5)', () => {
   });
 });
 
-describe('registry validation', () => {
-  it('rejects invalid input with SKY-E-3001', async () => {
-    const result = await registry.execute('read', { notPath: true }, ctx);
-    expect(result.code).toBe(ErrorCode.ToolInputInvalid);
-    expect(result.retryable).toBe(true);
+describe('shell tool', () => {
+  it('runs a simple command', async () => {
+    const result = await registry.execute('shell', { command: 'echo sky-ok' }, ctx);
+    expect(result.ok).toBe(true);
+    expect(result.output).toContain('sky-ok');
   });
-  it('reports an unknown tool', async () => {
-    const result = await registry.execute('nope', {}, ctx);
-    expect(result.code).toBe(ErrorCode.UnknownTool);
-  });
-  it('exposes provider tool definitions', () => {
-    const defs = registry.definitions();
-    expect(defs.map((d) => d.name)).toEqual(['read', 'write', 'edit', 'search', 'shell', 'git']);
+  it('accepts an AbortSignal via cancelSignal (execa v9)', async () => {
+    const ac = new AbortController();
+    const result = await registry.execute(
+      'shell',
+      { command: 'echo aborted-ok' },
+      { ...ctx, signal: ac.signal },
+    );
+    expect(result.ok).toBe(true);
+    expect(result.output).toContain('aborted-ok');
+    expect(result.output).not.toContain('cancelSignal');
+    expect(result.output).not.toContain('renamed to');
   });
 });

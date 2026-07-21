@@ -12,7 +12,7 @@ import { Approver, type Prompter, type ApprovalAnswer, type ApprovalPromptReques
 import { AgentLoop } from '../agent/loop.js';
 import { SkyError } from '../errors/index.js';
 import { writeConfig, writeSecret, clearSecret } from '../config/index.js';
-import { PluginManager, runPluginCommand, type LoadedPlugin, type PluginCommand } from '../plugins/index.js';
+import { PluginManager, runPluginCommand, applyCommandArgs, type LoadedPlugin, type PluginCommand } from '../plugins/index.js';
 import type { Skill } from '../skills/index.js';
 import {
   getSuggestions,
@@ -385,11 +385,25 @@ export function App(props: AppProps): React.ReactElement {
         // A plugin-contributed command? Run its prompt template as a turn.
         const pluginCommand = pluginCommands.find((c) => c.name === name);
         if (pluginCommand) {
-          pushLog('system', `Running plugin command /${name}`);
-          void runAgent(pluginCommand.body);
-        } else {
-          pushLog('error', `Unknown command: /${name}`);
+          const prompt = applyCommandArgs(pluginCommand.body, arg ?? '');
+          pushLog('system', `Running plugin command /${name}${arg ? ` ${arg}` : ''}`);
+          void runAgent(prompt);
+          break;
         }
+        // Bare plugin name (e.g. `/ponytail` with only namespaced cmds) → list them.
+        const prefixed = pluginCommands.filter((c) => c.name.startsWith(`${name}:`));
+        if (prefixed.length > 0) {
+          pushLog(
+            'system',
+            [
+              `Plugin commands for "${name}":`,
+              ...prefixed.map((c) => `  /${c.name}${c.description ? ` — ${c.description}` : ''}`),
+              'Type the full command (or pick it from the / palette).',
+            ].join('\n'),
+          );
+          break;
+        }
+        pushLog('error', `Unknown command: /${name}`);
         break;
       }
     }
@@ -532,8 +546,27 @@ export function App(props: AppProps): React.ReactElement {
       return;
     }
     if (key.return) {
-      if (paletteOpen) acceptSuggestion(suggestions[clampedSelected]);
-      else submit();
+      if (paletteOpen) {
+        const typed = parseInput(input).command;
+        const exact = suggestions.find((s) => s.kind === 'command' && s.value === typed);
+        const selectedSuggestion = suggestions[clampedSelected];
+        // Prefer an exact match for what the user typed (e.g. `/ponytail` over
+        // `/ponytail:ponytail`). If the only hits are namespaced children of a
+        // bare plugin name, submit the typed token so we can list them.
+        if (exact) {
+          acceptSuggestion(exact);
+        } else if (
+          selectedSuggestion?.kind === 'command' &&
+          typed &&
+          selectedSuggestion.value.startsWith(`${typed}:`)
+        ) {
+          submit();
+        } else {
+          acceptSuggestion(selectedSuggestion);
+        }
+      } else {
+        submit();
+      }
       return;
     }
     if (key.escape) {
