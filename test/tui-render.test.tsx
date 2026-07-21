@@ -240,6 +240,16 @@ describe('Ink TUI', () => {
     unmount();
   });
 
+  it('shows loaded plugins in the status bar', async () => {
+    const plugins: LoadedPlugin[] = [
+      { name: 'ponytail', commands: [{ name: 'ponytail:create', description: 'Create a worktree', body: 'do it' }], mcpServers: [] },
+    ];
+    const { lastFrame, unmount } = mount(plugins);
+    await delay();
+    expect(strip(lastFrame() ?? '')).toContain('pl:ponytail');
+    unmount();
+  });
+
   it('shows plugin-contributed commands in the palette', async () => {
     const plugins: LoadedPlugin[] = [
       { name: 'ponytail', commands: [{ name: 'ponytail:create', description: 'Create a worktree', body: 'do it' }], mcpServers: [] },

@@ -23,6 +23,7 @@ import {
   providersForPalette,
   type Suggestion,
 } from './commands.js';
+import { pluginForCommand, pluginForMcpTool, formatPluginStatusLabel } from './plugin-status.js';
 
 export interface AppProps {
   /** Lazily create a provider by name so a config error (e.g. missing API key)
@@ -80,6 +81,10 @@ export function App(props: AppProps): React.ReactElement {
   const auditRef = useRef(new AuditLog({ logger: props.logger }));
   const pluginManagerRef = useRef(new PluginManager({ logger: props.logger }));
   const [plugins, setPlugins] = useState<LoadedPlugin[]>(props.plugins ?? []);
+  const [activePlugin, setActivePlugin] = useState<string | null>(null);
+  /** Brief flash after reload so new plugins are obvious in the status bar. */
+  const [pluginsJustReloaded, setPluginsJustReloaded] = useState(false);
+  const pluginFlashTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Flatten plugin-contributed commands for the palette and for execution.
   const pluginCommands = useMemo<PluginCommand[]>(() => plugins.flatMap((p) => p.commands), [plugins]);
@@ -196,9 +201,10 @@ export function App(props: AppProps): React.ReactElement {
     return buildProvider(providerName);
   }
 
-  async function runAgent(prompt: string): Promise<void> {
+  async function runAgent(prompt: string, opts: { activePlugin?: string | null } = {}): Promise<void> {
     const activeProvider = ensureProvider();
     if (!activeProvider) return; // provider unavailable; error already shown
+    if (opts.activePlugin) setActivePlugin(opts.activePlugin);
     setBusy(true);
     const abort = new AbortController();
     abortRef.current = abort;
@@ -231,9 +237,12 @@ export function App(props: AppProps): React.ReactElement {
             streamed += event.text;
             setStreaming(streamed);
             break;
-          case 'tool-call':
+          case 'tool-call': {
             pushLog('tool', `${GLYPH} ${event.toolCall.name} ${summarize(event.toolCall.input)}`);
+            const fromMcp = pluginForMcpTool(plugins, event.toolCall.name);
+            if (fromMcp) setActivePlugin(fromMcp);
             break;
+          }
           case 'tool-result':
             pushLog('tool-result', firstLine(event.output), event.ok);
             if (event.ok && (event.toolName === 'write' || event.toolName === 'edit')) {
@@ -263,6 +272,7 @@ export function App(props: AppProps): React.ReactElement {
       }
     } finally {
       setBusy(false);
+      setActivePlugin(null);
       abortRef.current = null;
     }
   }
@@ -397,8 +407,9 @@ export function App(props: AppProps): React.ReactElement {
           [
             `session ${session.id.slice(0, 8)} · ${mode} · ${providerName}:${model}`,
             `cwd ${session.cwd}`,
-            `tools ${toolCount} · plugins ${pluginCount} · skills ${skillCount} · mcp servers ${mcpCount}`,
+            `tools ${toolCount} · plugins ${pluginCount}${pluginCount ? ` (${plugins.map((p) => p.name).join(', ')})` : ''} · skills ${skillCount} · mcp servers ${mcpCount}`,
             `tokens ${session.tokenUsage.input} in / ${session.tokenUsage.output} out · ~$${session.tokenUsage.estimatedCostUsd.toFixed(4)}`,
+            activePlugin ? `active plugin: ${activePlugin}` : 'no plugin active this turn',
             session.lastTurnInterrupted ? '⚠ last turn was interrupted — history may be incomplete' : 'session healthy',
           ].join('\n'),
         );
@@ -464,8 +475,14 @@ export function App(props: AppProps): React.ReactElement {
         const pluginCommand = pluginCommands.find((c) => c.name === name);
         if (pluginCommand) {
           const prompt = applyCommandArgs(pluginCommand.body, arg ?? '');
-          pushLog('system', `Running plugin command /${name}${arg ? ` ${arg}` : ''}`);
-          void runAgent(prompt);
+          const owner = pluginForCommand(plugins, name);
+          pushLog(
+            'system',
+            owner
+              ? `Running plugin command /${name}${arg ? ` ${arg}` : ''}  [${owner}]`
+              : `Running plugin command /${name}${arg ? ` ${arg}` : ''}`,
+          );
+          void runAgent(prompt, { activePlugin: owner });
           break;
         }
         // Bare plugin name (e.g. `/ponytail` with only namespaced cmds) → list them.
@@ -491,6 +508,10 @@ export function App(props: AppProps): React.ReactElement {
   function reloadPlugins(): LoadedPlugin[] {
     const loaded = pluginManagerRef.current.load();
     setPlugins(loaded);
+    setPluginsJustReloaded(true);
+    // Brief highlight in the status bar so reloads are visible without reading logs.
+    if (pluginFlashTimer.current) clearTimeout(pluginFlashTimer.current);
+    pluginFlashTimer.current = setTimeout(() => setPluginsJustReloaded(false), 2500);
     // Merge any new MCP servers from plugins into config
     for (const plugin of loaded) {
       for (const server of plugin.mcpServers) {
@@ -590,13 +611,15 @@ export function App(props: AppProps): React.ReactElement {
       const action = args[0];
       if (action && ['install', 'uninstall', 'remove', 'marketplace'].includes(action)) {
         const loaded = reloadPlugins();
+        const names = loaded.map((p) => p.name).join(', ') || 'none';
         const commandList = loaded.flatMap((p) => p.commands.map((c) => `/${c.name}`)).join(', ') || 'none';
-        pushLog('system', `Reloaded — ${loaded.length} plugin(s). Commands: ${commandList}`);
+        pushLog('system', `Reloaded — ${loaded.length} plugin(s): ${names}\nCommands: ${commandList}`);
       } else if (!action) {
         // No subcommand given (e.g. just `/plugin`) — still reload to show current state
         const loaded = reloadPlugins();
+        const names = loaded.map((p) => p.name).join(', ') || 'none';
         const commandList = loaded.flatMap((p) => p.commands.map((c) => `/${c.name}`)).join(', ') || 'none';
-        pushLog('system', `Reloaded — ${loaded.length} plugin(s). Commands: ${commandList}`);
+        pushLog('system', `Reloaded — ${loaded.length} plugin(s): ${names}\nCommands: ${commandList}`);
       }
     } catch (error) {
       pushLog('error', error instanceof Error ? error.message : String(error));
@@ -782,6 +805,9 @@ export function App(props: AppProps): React.ReactElement {
         showCost={showCost}
         costUsd={costUsd}
         showTokenBar={config.tui.theme.layout.showTokenBar !== false}
+        pluginNames={plugins.map((p) => p.name)}
+        activePlugin={activePlugin}
+        pluginsHighlight={pluginsJustReloaded}
       />
     </Box>
   );
@@ -893,6 +919,9 @@ function StatusBar({
   showCost,
   costUsd,
   showTokenBar,
+  pluginNames,
+  activePlugin,
+  pluginsHighlight,
 }: {
   mode: Mode;
   provider: string;
@@ -903,9 +932,19 @@ function StatusBar({
   showCost: boolean;
   costUsd: number;
   showTokenBar: boolean;
+  pluginNames: string[];
+  activePlugin: string | null;
+  pluginsHighlight: boolean;
 }): React.ReactElement {
   const pctColor = Number(pct) >= 95 ? 'red' : Number(pct) >= 90 ? 'yellow' : 'green';
   const costLabel = `~$${costUsd.toFixed(4)}`;
+  const pluginLabel = formatPluginStatusLabel(pluginNames);
+  // Active plugin (AI using it) → cyan; just reloaded → yellow; idle → gray.
+  const pluginColor = activePlugin ? 'cyan' : pluginsHighlight ? 'yellow' : 'gray';
+  const pluginText = activePlugin
+    ? `pl:${activePlugin}●`
+    : pluginLabel;
+
   return (
     <Box>
       <Text color={MODE_COLOR[mode]}>
@@ -924,7 +963,12 @@ function StatusBar({
           <Text color="yellow">{costLabel}</Text>
         </>
       ) : null}
-      <Text color="gray"> · {files} files · {sessionId.slice(0, 5)}</Text>
+      <Text color="gray"> · {files} files</Text>
+      <Text color="gray"> · </Text>
+      <Text color={pluginColor} bold={Boolean(activePlugin) || pluginsHighlight}>
+        {pluginText}
+      </Text>
+      <Text color="gray"> · {sessionId.slice(0, 5)}</Text>
     </Box>
   );
 }

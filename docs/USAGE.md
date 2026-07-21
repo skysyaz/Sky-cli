@@ -269,7 +269,9 @@ sky plugin uninstall myplugin
 /plugin search keyword
 ```
 
-After install, plugin slash commands appear in the palette.
+After install, plugin slash commands appear in the palette and the status bar
+shows `pl:<name>` (yellow briefly after reload). While the AI runs a plugin
+command or a plugin MCP tool, that segment turns **cyan** with `pl:<name>●`.
 
 Sky loads both Claude-style forms:
 - `commands/*.md` → `/plugin:name` (and short `/name` when safe)
