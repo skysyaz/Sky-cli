@@ -218,8 +218,8 @@ sky keys set openai sk-…
 sky keys clear openai
 ```
 
-Or open the **physical browser dashboard** (local only — like an OpenRouter
-keys page, but for Sky):
+Or open the **Integrations** browser dashboard (local only — Cursor-style
+Connect / Manage rows for GitHub, Gitea, and LLM providers):
 
 ```bash
 sky dashboard              # opens http://127.0.0.1:<port>/
@@ -227,9 +227,9 @@ sky dashboard --no-open    # print URL; do not launch a browser
 sky dashboard --port 8787
 ```
 
-The dashboard manages provider API keys **and** GitHub / Gitea forges in one
-page. Bind address is always `127.0.0.1`; mutating requests need an ephemeral
-`X-Sky-Token` baked into the page.
+**Source Control:** Connect GitHub or a self-hosted Gitea instance with a PAT.
+**Manage** → update token, set default, or disconnect. Keys/tokens stay in
+`~/.sky/secrets.json`; mutating requests need an ephemeral `X-Sky-Token`.
 
 Keys live in `~/.sky/secrets.json` (mode `0600`). If you open Sky on a
 provider with no key (e.g. leftover `qwen-web`), it auto-switches to

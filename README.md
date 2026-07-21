@@ -176,7 +176,7 @@ Manage keys in the TUI with `/keys`, from the shell with `sky keys`, or in the
 ### Browser dashboard & GitHub / Gitea
 
 ```bash
-sky dashboard                 # opens http://127.0.0.1:<port>/  (keys + forges)
+sky dashboard                 # opens Integrations UI at http://127.0.0.1:<port>/
 sky dashboard --no-open      # print URL only
 sky forge list
 sky forge add github --type github --url https://github.com --token ghp_…
@@ -184,7 +184,9 @@ sky forge add work --type gitea --url https://gitea.example.com --username me --
 sky forge token work --token …
 ```
 
-Forge tokens live in `~/.sky/secrets.json` as `forge:<id>`. When the agent runs
+The dashboard mirrors a Cursor-style **Integrations** page: **Source Control**
+rows for GitHub / Gitea (Connect · Manage) plus **LLM Providers**. Forge tokens
+live in `~/.sky/secrets.json` as `forge:<id>`. When the agent runs
 `git push` / `pull` / `fetch`, Sky matches the remote host to a forge and uses
 HTTPS token auth **without rewriting** your remotes. Self-hosted Gitea is
 supported the same way as GitHub.
