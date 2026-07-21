@@ -24,7 +24,7 @@ const PROVIDER_DEFAULTS: Record<string, { apiKeyEnv: string; model: string }> = 
   'ollama-cloud': { apiKeyEnv: 'OLLAMA_API_KEY', model: 'gpt-oss:120b' },
   openrouter: { apiKeyEnv: 'OPENROUTER_API_KEY', model: 'openai/gpt-4o' },
   zenmux: { apiKeyEnv: 'ZENMUX_API_KEY', model: 'x-ai/grok-4.5-free' },
-  opencode: { apiKeyEnv: 'OPENCODE_API_KEY', model: 'deepseek-v4-flash-free' },
+  opencode: { apiKeyEnv: '', model: 'deepseek-v4-flash-free' },
   gemini: { apiKeyEnv: 'GEMINI_API_KEY', model: 'gemini-2.0-flash' },
   deepseek: { apiKeyEnv: 'DEEPSEEK_API_KEY', model: 'deepseek-chat' },
   groq: { apiKeyEnv: 'GROQ_API_KEY', model: 'llama-3.3-70b-versatile' },
@@ -162,7 +162,15 @@ export async function initCommand(global: GlobalOptions): Promise<number> {
   writeConfig(config, path);
   exportJsonSchema();
   process.stdout.write(`Created ${path} (provider: ${provider}, model: ${model}).\n`);
-  if (defaults.apiKeyEnv) {
+  if (provider === 'opencode') {
+    process.stdout.write(
+      [
+        'OpenCode Zen free models work with no API key (guest access).',
+        'Try: sky "hello"',
+        'For paid Zen models later: export OPENCODE_API_KEY=...  or  /key <value>',
+      ].join('\n') + '\n',
+    );
+  } else if (defaults.apiKeyEnv) {
     process.stdout.write(`Set your API key: export ${defaults.apiKeyEnv}=...\n`);
   }
   return 0;

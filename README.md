@@ -155,7 +155,7 @@ sky -s abc12 "continue…"    # attach to a session on start
 | `ollama-cloud` | `OLLAMA_API_KEY` | Hosted Ollama |
 | `openrouter` | `OPENROUTER_API_KEY` | |
 | `zenmux` | `ZENMUX_API_KEY` | |
-| `opencode` | `OPENCODE_API_KEY` | Hosted OpenCode Zen |
+| `opencode` | _(optional)_ `OPENCODE_API_KEY` | Free models work with no key (guest). Paid Zen models need a key. Endpoint: `https://opencode.ai/zen/v1` |
 | `gemini` | `GEMINI_API_KEY` | Google OpenAI-compat endpoint |
 | `deepseek` | `DEEPSEEK_API_KEY` | |
 | `groq` | `GROQ_API_KEY` | |

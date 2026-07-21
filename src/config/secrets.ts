@@ -12,10 +12,11 @@ import type { ProviderConfig } from './schema.js';
  *   3. secrets file `~/.sky/secrets.json` (mode 0600)
  *   4. `SKY_PROVIDERS_X_API_KEY` env var
  *   5. conventional provider env (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, …)
- *   6. otherwise fail with SKY-E-1002
+ *   6. OpenCode Zen guest token `"public"` (free models only; no account needed)
+ *   7. otherwise fail with SKY-E-1002
  *
- * Only `mock` and local `ollama` never require a key. Hosted gateways
- * (including OpenCode Zen) do.
+ * `mock` and local `ollama` never require a key. OpenCode Zen free models work
+ * with the public guest token; set `OPENCODE_API_KEY` for paid Zen models.
  */
 export function resolveApiKey(
   providerName: string,
@@ -49,6 +50,15 @@ export function resolveApiKey(
 
   const wellKnown = WELL_KNOWN_ENV[providerName];
   if (wellKnown && env[wellKnown]) return env[wellKnown]!;
+
+  // OpenCode Zen free models (e.g. deepseek-v4-flash-free) accept the public
+  // guest token with no account. Paid models still need OPENCODE_API_KEY.
+  if (providerName === 'opencode') {
+    logger?.info('config.apiKey.opencodePublic', {
+      hint: 'Using OpenCode Zen public guest token for free models. Set OPENCODE_API_KEY (or /key) for paid models.',
+    });
+    return 'public';
+  }
 
   throw new SkyError(ErrorCode.NoApiKey, { name: providerName });
 }
@@ -139,3 +149,12 @@ export function hasApiKey(
     return false;
   }
 }
+
+/** OpenCode Zen free models that work with the public guest token. */
+export const OPENCODE_FREE_MODELS = [
+  'deepseek-v4-flash-free',
+  'mimo-v2.5-free',
+  'north-mini-code-free',
+  'nemotron-3-ultra-free',
+  'big-pickle',
+] as const;

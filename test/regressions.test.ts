@@ -148,10 +148,8 @@ describe('secrets file storage', () => {
     }
   });
 
-  it('requires a key for opencode (hosted)', () => {
-    expect(() => resolveApiKey('opencode', undefined, undefined, {})).toThrowError(
-      expect.objectContaining({ code: ErrorCode.NoApiKey }),
-    );
+  it('uses public guest token for opencode free models', () => {
+    expect(resolveApiKey('opencode', undefined, undefined, {})).toBe('public');
   });
 });
 
