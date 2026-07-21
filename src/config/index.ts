@@ -17,6 +17,13 @@ export {
   secretsPath,
   OPENCODE_FREE_MODELS,
 } from './secrets.js';
+export {
+  providerAuthTag,
+  providerAuthSetupCard,
+  providerAuthHint,
+  isKeylessProvider,
+  type ProviderAuthHelp,
+} from './provider-auth.js';
 
 /** Overrides supplied from the command line (precedence level 5 — highest). */
 export interface CliOverrides {

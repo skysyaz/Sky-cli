@@ -4,6 +4,7 @@ import { ErrorCode, SkyError } from '../errors/index.js';
 import type { Logger } from '../logging/index.js';
 import { skyHome } from './paths.js';
 import type { ProviderConfig } from './schema.js';
+import { providerAuthHint } from './provider-auth.js';
 
 /**
  * Resolve a provider's API key following the precedence in §7.7:
@@ -60,7 +61,10 @@ export function resolveApiKey(
     return 'public';
   }
 
-  throw new SkyError(ErrorCode.NoApiKey, { name: providerName });
+  throw new SkyError(ErrorCode.NoApiKey, {
+    name: providerName,
+    hint: providerAuthHint(providerName),
+  });
 }
 
 /** Common provider → env var names users already export. */

@@ -124,4 +124,19 @@ describe('secret resolution (§7.7)', () => {
   it('still prefers OPENCODE_API_KEY when set', () => {
     expect(resolveApiKey('opencode', undefined, undefined, { OPENCODE_API_KEY: 'sk-zen' })).toBe('sk-zen');
   });
+  it('explains how to get a free key for qwen-web', async () => {
+    const { providerAuthSetupCard, providerAuthHint } = await import('../src/config/provider-auth.js');
+    expect(() => resolveApiKey('qwen-web', undefined, undefined, {})).toThrowError(
+      expect.objectContaining({ code: ErrorCode.NoApiKey }),
+    );
+    try {
+      resolveApiKey('qwen-web', undefined, undefined, {});
+    } catch (error) {
+      expect(String((error as Error).message)).toContain('opencode');
+      expect(String((error as Error).message)).toContain('modelstudio');
+    }
+    expect(providerAuthHint('qwen-web')).toContain('/provider opencode');
+    expect(providerAuthSetupCard('qwen-web')).toContain('DashScope');
+    expect(providerAuthSetupCard('qwen-web')).toContain('/key');
+  });
 });

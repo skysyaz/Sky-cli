@@ -9,7 +9,7 @@ describe('error catalog', () => {
   });
 
   it('renders message templates from context', () => {
-    const err = new SkyError(ErrorCode.NoApiKey, { name: 'openai' });
+    const err = new SkyError(ErrorCode.NoApiKey, { name: 'openai', hint: '' });
     expect(err.message).toBe('No API key configured for provider openai.');
     expect(err.code).toBe('SKY-E-1002');
     expect(err.exitCode).toBe(64);
