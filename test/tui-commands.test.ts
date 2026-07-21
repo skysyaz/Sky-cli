@@ -62,6 +62,11 @@ describe('palette suggestions (§5.5)', () => {
     });
     expect(s.map((x) => x.value)).toEqual(['ponytail:create']);
   });
+  it('lists /new and /reset for a fresh session', () => {
+    expect(getSuggestions('/ne').map((x) => x.value)).toEqual(['new']);
+    expect(getSuggestions('/re').map((x) => x.value)).toContain('reset');
+  });
+
   it('offers on/off/toggle for /cost', () => {
     expect(getSuggestions('/cost ').map((x) => x.value)).toEqual(['on', 'off', 'toggle']);
   });

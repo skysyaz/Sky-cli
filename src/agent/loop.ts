@@ -3,6 +3,14 @@ import { nullLogger, type Logger } from '../logging/index.js';
 import type { SkyConfig } from '../config/index.js';
 import type { Session, Message, ToolCall } from '../session/types.js';
 import type { SessionStore } from '../session/store.js';
+import {
+  compactSessionMessages,
+  shouldAutoCompact,
+  overflowKeepRecent,
+  estimateMessageTokens,
+  contextBudget,
+  type CompactReason,
+} from '../session/compact.js';
 import type { Provider, LlmMessage, StreamRequest } from '../llm/types.js';
 import { buildContext } from '../llm/context.js';
 import { estimateCost } from '../llm/cost.js';
@@ -66,8 +74,6 @@ export class AgentLoop {
     let finishReason = 'stop';
 
     try {
-      this.maybeCompact(session);
-
       for (let iteration = 0; iteration < maxIterations; iteration++) {
         if (this.opts.signal?.aborted) throw new SkyError(ErrorCode.AgentAborted, {});
 
@@ -131,26 +137,79 @@ export class AgentLoop {
     }
   }
 
-  /** Lightweight auto-compaction when past the configured threshold. */
-  private maybeCompact(session: Session): void {
-    const { config, store } = this.opts;
-    if (!config.sessions.autoCompact) return;
-    const total = session.tokenUsage.input + session.tokenUsage.output;
-    if (total < config.sessions.autoCompactThreshold) return;
-    if (session.messages.length < 12) return;
+  /**
+   * Proactive compact when cumulative tokens or estimated history fill pass
+   * configured thresholds. Returns an event when history was changed.
+   */
+  private applyAutoCompact(session: Session): AgentEvent | null {
+    const { config, store, provider } = this.opts;
+    const limits = provider.tokenLimits(session.model);
+    const cumulative = session.tokenUsage.input + session.tokenUsage.output;
+    if (
+      !shouldAutoCompact({
+        messages: session.messages,
+        cumulativeTokens: cumulative,
+        limits,
+        autoCompact: config.sessions.autoCompact,
+        autoCompactThreshold: config.sessions.autoCompactThreshold,
+        autoCompactRatio: config.sessions.autoCompactRatio,
+      })
+    ) {
+      return null;
+    }
 
-    const systemKeep = session.messages.filter((m) => m.role === 'system');
-    const recent = session.messages.slice(-8);
-    const dropped = session.messages.length - systemKeep.length - recent.length;
-    if (dropped <= 0) return;
+    const reason: CompactReason =
+      cumulative >= config.sessions.autoCompactThreshold ? 'threshold' : 'ratio';
+    const result = compactSessionMessages(session.messages, {
+      keepRecent: 8,
+      stubToolResults: true,
+      reason,
+    });
+    if (result.dropped <= 0 && result.messages === session.messages) return null;
+    // Even if dropped is 0, stubbing may have shrunk tool payloads.
+    const before = estimateMessageTokens(session.messages);
+    const after = estimateMessageTokens(result.messages);
+    if (after >= before && result.dropped <= 0) return null;
 
-    const summary: Message = {
-      role: 'user',
-      content: `[compacted ${dropped} earlier messages to reclaim context]`,
-    };
-    session.messages = [...systemKeep, summary, ...recent];
+    session.messages = result.messages;
     store.save(session);
-    this.logger.info('agent.compacted', { dropped, remaining: session.messages.length });
+    this.logger.info('agent.compacted', {
+      reason,
+      dropped: result.dropped,
+      remaining: session.messages.length,
+      before,
+      after,
+    });
+    return {
+      type: 'session-compacted',
+      dropped: result.dropped,
+      reason,
+      remaining: session.messages.length,
+    };
+  }
+
+  /** Emergency compact after ContextWindowExceeded — progressively aggressive. */
+  private applyOverflowCompact(session: Session, attempt: number): AgentEvent | null {
+    const { store } = this.opts;
+    const result = compactSessionMessages(session.messages, {
+      keepRecent: overflowKeepRecent(attempt),
+      stubToolResults: true,
+      reason: 'overflow',
+    });
+    session.messages = result.messages;
+    store.save(session);
+    this.logger.warn('agent.compacted.overflow', {
+      attempt,
+      dropped: result.dropped,
+      remaining: session.messages.length,
+      budgetFill: estimateMessageTokens(session.messages),
+    });
+    return {
+      type: 'session-compacted',
+      dropped: result.dropped,
+      reason: 'overflow',
+      remaining: session.messages.length,
+    };
   }
 
   /** Stream one provider response, yielding text/tool-call events. */
@@ -160,73 +219,115 @@ export class AgentLoop {
     const { provider, registry, config } = this.opts;
     const limits = provider.tokenLimits(session.model);
 
-    const system: LlmMessage = {
-      role: 'system',
-      content: buildSystemPrompt(session.mode, session.cwd, this.opts.skills ?? []),
-    };
-    const history = session.messages as LlmMessage[];
-    const messages = buildContext({ messages: [system, ...history], limits });
+    // Proactive compact before each provider call (also mid-turn after tools).
+    const proactive = this.applyAutoCompact(session);
+    if (proactive) yield proactive;
 
     const allDefs = registry.definitions();
     const tools = modeHasTools(session.mode) ? filterToolsForMode(session.mode, allDefs) : undefined;
 
-    const request: StreamRequest = {
-      messages,
-      model: session.model,
-      tools: tools?.length ? tools : undefined,
-      maxOutputTokens: limits.maxOutput,
-      signal: this.opts.signal,
-    };
+    // Retry buildContext after overflow compact; then retry the stream.
+    const overflowRetries = config.sessions.autoCompact ? 3 : 0;
+    for (let overflowAttempt = 0; ; overflowAttempt++) {
+      const system: LlmMessage = {
+        role: 'system',
+        content: buildSystemPrompt(session.mode, session.cwd, this.opts.skills ?? []),
+      };
+      const safetyMargin = overflowAttempt === 0 ? 2048 : overflowAttempt === 1 ? 1024 : 512;
+      const keepRecentTurns = overflowAttempt === 0 ? 6 : overflowAttempt === 1 ? 3 : 1;
 
-    // Retry the stream only if it fails before emitting any output.
-    // Prefer configured provider fallback after repeated failures.
-    const retries = 4;
-    const fallback = config.providers[session.provider]?.fallback;
-    for (let attempt = 0; ; attempt++) {
-      let assistantText = '';
-      const toolCalls: ToolCall[] = [];
-      let reason = 'stop';
-      let emitted = false;
+      let messages: LlmMessage[];
       try {
-        for await (const chunk of provider.stream(request)) {
-          if (this.opts.signal?.aborted) throw new SkyError(ErrorCode.AgentAborted, {});
-          if (chunk.type === 'text-delta') {
-            emitted = true;
-            assistantText += chunk.text;
-            yield { type: 'text-delta', text: chunk.text };
-          } else if (chunk.type === 'tool-call') {
-            emitted = true;
-            toolCalls.push(chunk.toolCall);
-          } else if (chunk.type === 'done') {
-            reason = chunk.finishReason;
-            const cost = estimateCost(session.model, chunk.usage);
-            session.tokenUsage.input += chunk.usage.inputTokens;
-            session.tokenUsage.output += chunk.usage.outputTokens;
-            session.tokenUsage.estimatedCostUsd += cost;
-            yield { type: 'usage', usage: chunk.usage, estimatedCostUsd: session.tokenUsage.estimatedCostUsd };
-            this.checkBudget(config, session);
-          }
-        }
-        return { assistantText, toolCalls, reason };
+        messages = buildContext({
+          messages: [system, ...(session.messages as LlmMessage[])],
+          limits,
+          safetyMargin,
+          keepRecentTurns,
+        });
       } catch (error) {
-        const skyError = SkyError.from(error, ErrorCode.ProviderRequestFailed);
-        if (skyError.retryable && !emitted && attempt < retries) {
-          const delay = Math.min(30_000, 1000 * 2 ** attempt + Math.floor(Math.random() * 250));
-          this.logger.warn('provider.retry', { attempt: attempt + 1, code: skyError.code });
-          await new Promise((r) => setTimeout(r, delay));
-          // After triggerAfter retries, swap model/provider if fallback configured.
-          if (fallback && attempt + 1 >= fallback.triggerAfter) {
-            this.logger.warn('provider.fallback', {
-              from: `${session.provider}:${session.model}`,
-              to: `${fallback.provider}:${fallback.model}`,
-            });
-            session.provider = fallback.provider;
-            session.model = fallback.model;
-            request.model = fallback.model;
+        const skyError = SkyError.from(error);
+        if (
+          skyError.code === ErrorCode.ContextWindowExceeded &&
+          overflowAttempt < overflowRetries
+        ) {
+          const ev = this.applyOverflowCompact(session, overflowAttempt);
+          if (ev) yield ev;
+          // If still hopeless (single huge message), stop retrying.
+          const budget = contextBudget(limits, safetyMargin);
+          if (budget > 0 && estimateMessageTokens(session.messages) > budget * 2) {
+            // Keep trying with more aggressive keepRecent via next attempt.
           }
           continue;
         }
         throw skyError;
+      }
+
+      const request: StreamRequest = {
+        messages,
+        model: session.model,
+        tools: tools?.length ? tools : undefined,
+        maxOutputTokens: limits.maxOutput,
+        signal: this.opts.signal,
+      };
+
+      // Retry the stream only if it fails before emitting any output.
+      const retries = 4;
+      const fallback = config.providers[session.provider]?.fallback;
+      for (let attempt = 0; ; attempt++) {
+        let assistantText = '';
+        const toolCalls: ToolCall[] = [];
+        let reason = 'stop';
+        let emitted = false;
+        try {
+          for await (const chunk of provider.stream(request)) {
+            if (this.opts.signal?.aborted) throw new SkyError(ErrorCode.AgentAborted, {});
+            if (chunk.type === 'text-delta') {
+              emitted = true;
+              assistantText += chunk.text;
+              yield { type: 'text-delta', text: chunk.text };
+            } else if (chunk.type === 'tool-call') {
+              emitted = true;
+              toolCalls.push(chunk.toolCall);
+            } else if (chunk.type === 'done') {
+              reason = chunk.finishReason;
+              const cost = estimateCost(session.model, chunk.usage);
+              session.tokenUsage.input += chunk.usage.inputTokens;
+              session.tokenUsage.output += chunk.usage.outputTokens;
+              session.tokenUsage.estimatedCostUsd += cost;
+              yield { type: 'usage', usage: chunk.usage, estimatedCostUsd: session.tokenUsage.estimatedCostUsd };
+              this.checkBudget(config, session);
+            }
+          }
+          return { assistantText, toolCalls, reason };
+        } catch (error) {
+          const skyError = SkyError.from(error, ErrorCode.ProviderRequestFailed);
+          // Some providers report overflow as a bad request — compact and retry once.
+          if (
+            !emitted &&
+            overflowAttempt < overflowRetries &&
+            isProviderContextOverflow(skyError)
+          ) {
+            const ev = this.applyOverflowCompact(session, overflowAttempt);
+            if (ev) yield ev;
+            break; // break inner loop → outer overflow retry rebuilds context
+          }
+          if (skyError.retryable && !emitted && attempt < retries) {
+            const delay = Math.min(30_000, 1000 * 2 ** attempt + Math.floor(Math.random() * 250));
+            this.logger.warn('provider.retry', { attempt: attempt + 1, code: skyError.code });
+            await new Promise((r) => setTimeout(r, delay));
+            if (fallback && attempt + 1 >= fallback.triggerAfter) {
+              this.logger.warn('provider.fallback', {
+                from: `${session.provider}:${session.model}`,
+                to: `${fallback.provider}:${fallback.model}`,
+              });
+              session.provider = fallback.provider;
+              session.model = fallback.model;
+              request.model = fallback.model;
+            }
+            continue;
+          }
+          throw skyError;
+        }
       }
     }
   }
@@ -332,4 +433,19 @@ export class AgentLoop {
       output: execResult.output,
     };
   }
+}
+
+/** Detect provider errors that usually mean the prompt is too long. */
+function isProviderContextOverflow(error: SkyError): boolean {
+  if (error.code === ErrorCode.ContextWindowExceeded) return true;
+  const causeMsg = error.cause instanceof Error ? error.cause.message : String(error.cause ?? '');
+  const detail = `${error.message} ${causeMsg} ${JSON.stringify(error.context)}`.toLowerCase();
+  return (
+    detail.includes('context_length') ||
+    detail.includes('context length') ||
+    detail.includes('context window') ||
+    detail.includes('maximum context') ||
+    detail.includes('too many tokens') ||
+    (detail.includes('token') && detail.includes('limit') && detail.includes('exceed'))
+  );
 }

@@ -128,7 +128,8 @@ When stdin is a TTY, Sky opens an Ink TUI:
 | `/provider free` | Keyless OpenCode free models |
 | `/cost` | Session usage; `/cost on\|off\|toggle` for status-bar cost |
 | `/diff` | Files edited this session |
-| `/compact` | Trim older messages to reclaim context |
+| `/compact` | Trim older messages to reclaim context (also auto on fill/overflow) |
+| `/new` | Start a fresh session (previous kept on disk; alias `/reset`) |
 | `/plugin …` | Marketplace / install / list / search |
 | `/clear` | Clear the screen (keeps history) |
 | `/exit` | Save and quit |

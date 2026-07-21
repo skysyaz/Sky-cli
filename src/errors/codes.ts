@@ -117,7 +117,12 @@ export const ERROR_CATALOG: Record<ErrorCode, ErrorMeta> = {
 
   // 2xxx
   [ErrorCode.AgentAborted]: { message: 'Agent loop aborted by user (Ctrl-C)', retryable: false, exitCode: 130 },
-  [ErrorCode.ContextWindowExceeded]: { message: 'Context window exceeded. Run `/compact` or start a new session.', retryable: false, exitCode: 68 },
+  [ErrorCode.ContextWindowExceeded]: {
+    message:
+      'Context window exceeded even after auto-compact. Run `/compact` or `/new` for a fresh session.',
+    retryable: false,
+    exitCode: 68,
+  },
   [ErrorCode.NoToolDefinitions]: { message: 'No tool definitions provided but agent requested tool call.', retryable: false, exitCode: 70 },
   [ErrorCode.MaxIterations]: { message: 'Agent turn exceeded max iterations ({n}).', retryable: false, exitCode: 70 },
   [ErrorCode.PlanModeRejectedTool]: { message: 'Plan mode rejected tool call: {name}.', retryable: false, exitCode: 0 },

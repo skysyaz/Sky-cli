@@ -4,6 +4,11 @@ import type { SkyConfig } from '../config/index.js';
 import type { Logger } from '../logging/index.js';
 import type { Session, Mode } from '../session/types.js';
 import type { SessionStore } from '../session/store.js';
+import {
+  compactSessionMessages,
+  estimateMessageTokens,
+  contextBudget,
+} from '../session/compact.js';
 import type { Provider } from '../llm/types.js';
 import type { ToolRegistry } from '../tools/index.js';
 import { Policy } from '../safety/policy.js';
@@ -57,7 +62,11 @@ const MODE_COLOR: Record<Mode, string> = { agent: 'cyan', plan: 'magenta', ask: 
 
 export function App(props: AppProps): React.ReactElement {
   const { exit } = useApp();
-  const { registry, session, store, config } = props;
+  const { registry, store, config } = props;
+  /** Mutable current session — replaced by `/new` without remounting the TUI. */
+  const sessionRef = useRef<Session>(props.session);
+  const session = sessionRef.current;
+  const [sessionId, setSessionId] = useState(props.session.id);
   const [provider, setProvider] = useState<Provider | null>(null);
   /** Display name — must not rely on adapter.name (stale after failed switches). */
   const [providerName, setProviderName] = useState(session.provider);
@@ -69,7 +78,7 @@ export function App(props: AppProps): React.ReactElement {
   const [busy, setBusy] = useState(false);
   const [mode, setMode] = useState<Mode>(session.mode);
   const [model, setModel] = useState(session.model);
-  const [tokenUsed, setTokenUsed] = useState(session.tokenUsage.input + session.tokenUsage.output);
+  const [contextFill, setContextFill] = useState(() => estimateMessageTokens(session.messages));
   const [costUsd, setCostUsd] = useState(session.tokenUsage.estimatedCostUsd);
   const [showCost, setShowCost] = useState(Boolean(config.tui.theme.layout.showCost));
   const [filesEdited, setFilesEdited] = useState(0);
@@ -93,10 +102,11 @@ export function App(props: AppProps): React.ReactElement {
     [pluginCommands],
   );
 
-  const tokenLimit = useMemo(
-    () => (provider ? provider.tokenLimits(model).contextWindow : 128_000),
+  const tokenLimits = useMemo(
+    () => (provider ? provider.tokenLimits(model) : { contextWindow: 128_000, maxOutput: 4096 }),
     [provider, model],
   );
+  const contextBudgetTokens = useMemo(() => contextBudget(tokenLimits), [tokenLimits]);
   const modelSuggestions = useMemo(
     () => modelsForProvider(providerName, model),
     [providerName, model],
@@ -148,31 +158,32 @@ export function App(props: AppProps): React.ReactElement {
 
   /** Switch provider + default model, persist, rebuild adapter. */
   function switchProvider(target: string, opts: { announce?: boolean } = {}): boolean {
+    const live = sessionRef.current;
     const announce = opts.announce !== false;
     setProvider(null); // drop stale adapter so status never shows the old name
-    session.provider = target;
+    live.provider = target;
     setProviderName(target);
     config.defaultProvider = target;
 
     const providerDefaultModel = config.providers[target]?.defaultModel;
     if (providerDefaultModel) {
-      session.model = providerDefaultModel;
+      live.model = providerDefaultModel;
       setModel(providerDefaultModel);
     } else if (target === 'qwen-web') {
-      session.model = 'qwen-plus';
+      live.model = 'qwen-plus';
       setModel('qwen-plus');
     } else if (target === 'zai-web') {
-      session.model = 'glm-4.5-flash';
+      live.model = 'glm-4.5-flash';
       setModel('glm-4.5-flash');
     } else if (target === 'kimi-web') {
-      session.model = 'kimi-k2.5';
+      live.model = 'kimi-k2.5';
       setModel('kimi-k2.5');
     } else if (target === 'opencode') {
-      session.model = 'deepseek-v4-flash-free';
+      live.model = 'deepseek-v4-flash-free';
       setModel('deepseek-v4-flash-free');
     }
 
-    store.save(session);
+    store.save(live);
     try {
       writeConfig(config);
     } catch (error) {
@@ -185,8 +196,8 @@ export function App(props: AppProps): React.ReactElement {
         pushLog(
           'system',
           target === 'opencode'
-            ? `Provider → opencode (keyless free · model ${session.model})`
-            : `Provider → ${target} (ready · model ${session.model})`,
+            ? `Provider → opencode (keyless free · model ${live.model})`
+            : `Provider → ${target} (ready · model ${live.model})`,
         );
       } else if (!hasApiKey(target, config.providers[target])) {
         pushLog('system', `Provider → ${target} (waiting for key · /keys set ${target} <key>)`);
@@ -204,6 +215,7 @@ export function App(props: AppProps): React.ReactElement {
   async function runAgent(prompt: string, opts: { activePlugin?: string | null } = {}): Promise<void> {
     const activeProvider = ensureProvider();
     if (!activeProvider) return; // provider unavailable; error already shown
+    const live = sessionRef.current;
     if (opts.activePlugin) setActivePlugin(opts.activePlugin);
     setBusy(true);
     const abort = new AbortController();
@@ -221,7 +233,7 @@ export function App(props: AppProps): React.ReactElement {
       registry,
       approver,
       policy: policyRef.current,
-      session,
+      session: live,
       store,
       config,
       logger: props.logger,
@@ -249,11 +261,21 @@ export function App(props: AppProps): React.ReactElement {
               setFilesEdited((n) => n + 1);
             }
             break;
+          case 'session-compacted':
+            setContextFill(estimateMessageTokens(live.messages));
+            pushLog(
+              'system',
+              event.dropped > 0
+                ? `Auto-compacted ${event.dropped} messages (${event.reason}) · ${event.remaining} kept`
+                : `Auto-compacted tool payloads (${event.reason}) · context reclaimed`,
+            );
+            break;
           case 'usage':
-            setTokenUsed(session.tokenUsage.input + session.tokenUsage.output);
-            setCostUsd(session.tokenUsage.estimatedCostUsd);
+            setContextFill(estimateMessageTokens(live.messages));
+            setCostUsd(live.tokenUsage.estimatedCostUsd);
             break;
           case 'turn-end':
+            setContextFill(estimateMessageTokens(live.messages));
             if (streamed.trim()) pushLog('assistant', streamed.trim());
             streamed = '';
             setStreaming('');
@@ -264,6 +286,7 @@ export function App(props: AppProps): React.ReactElement {
               streamed = '';
               setStreaming('');
             }
+            setContextFill(estimateMessageTokens(live.messages));
             pushLog('error', event.error.toUserMessage());
             break;
           default:
@@ -278,35 +301,67 @@ export function App(props: AppProps): React.ReactElement {
   }
 
   function executeSlash(name: string, arg?: string): void {
+    const live = sessionRef.current;
     switch (name) {
       case 'help':
         pushLog(
           'system',
           [
             'Sky commands',
-            '  /help /status /keys /mode /model /provider /key /cost /diff /plugin /compact /clear /exit',
-            '  /provider free     keyless OpenCode free models (no API key)',
-            '  /keys              API key dashboard — list / set / clear / use',
-            '  /key <api-key>     save key for current provider (~/.sky/secrets.json)',
-            '  /key clear         remove the stored key for the current provider',
-            '  /cost [on|off]     show usage; on/off keeps ~$cost in the status bar',
+            '  /help /status /keys /mode /model /provider /key /cost /diff /plugin',
+            '  /compact /new /clear /exit',
+            '  /new                start a fresh session (keeps previous on disk)',
+            '  /compact            trim old turns to reclaim context',
+            '  /provider free      keyless OpenCode free models (no API key)',
+            '  /keys               API key dashboard — list / set / clear / use',
+            '  /key <api-key>      save key for current provider (~/.sky/secrets.json)',
+            '  /key clear          remove the stored key for the current provider',
+            '  /cost [on|off]      show usage; on/off keeps ~$cost in the status bar',
             '  /plugin marketplace add <owner/repo> · install <name@market> · search <q>',
             'Keys: type / for palette · ↑/↓ · Tab/Enter · Esc clears · Enter submits',
             '      Ctrl+C cancels a running turn · Ctrl+C on empty input or Ctrl+D quits',
+            'Auto-compact runs when context fills (~55%) or on overflow — long sessions OK.',
           ].join('\n'),
         );
         break;
       case 'clear':
         setLog([]);
         break;
+      case 'new':
+      case 'reset': {
+        if (busy) {
+          pushLog('system', 'Finish or cancel the current turn (Ctrl+C), then /new.');
+          break;
+        }
+        store.setStatus(live, 'paused');
+        const next = store.create({
+          mode: live.mode,
+          cwd: live.cwd,
+          provider: providerName,
+          model,
+        });
+        sessionRef.current = next;
+        policyRef.current = new Policy(config, next.sessionAllowlist);
+        setSessionId(next.id);
+        setLog([]);
+        setStreaming('');
+        setContextFill(0);
+        setCostUsd(0);
+        setFilesEdited(0);
+        pushLog(
+          'system',
+          `New session ${next.id.slice(0, 8)} · previous ${live.id.slice(0, 8)} saved. Resume with: sky resume ${live.id.slice(0, 8)}`,
+        );
+        break;
+      }
       case 'exit':
-        store.setStatus(session, 'paused');
+        store.setStatus(live, 'paused');
         exit();
         break;
       case 'mode':
         if (arg === 'agent' || arg === 'plan' || arg === 'ask') {
-          session.mode = arg;
-          store.save(session);
+          live.mode = arg;
+          store.save(live);
           setMode(arg);
           pushLog('system', `Mode → ${arg}`);
         } else {
@@ -315,8 +370,8 @@ export function App(props: AppProps): React.ReactElement {
         break;
       case 'model':
         if (arg) {
-          session.model = arg;
-          store.save(session);
+          live.model = arg;
+          store.save(live);
           setModel(arg);
           buildProvider(providerName); // rebuild so token limits/pricing update
           pushLog('system', `Model → ${arg}`);
@@ -402,21 +457,24 @@ export function App(props: AppProps): React.ReactElement {
         const toolCount = registry.list().length;
         const skillCount = props.skills?.length ?? 0;
         const pluginCount = plugins.length;
+        const fill = estimateMessageTokens(live.messages);
+        const budget = contextBudgetTokens || 1;
         pushLog(
           'system',
           [
-            `session ${session.id.slice(0, 8)} · ${mode} · ${providerName}:${model}`,
-            `cwd ${session.cwd}`,
+            `session ${live.id.slice(0, 8)} · ${mode} · ${providerName}:${model}`,
+            `cwd ${live.cwd}`,
             `tools ${toolCount} · plugins ${pluginCount}${pluginCount ? ` (${plugins.map((p) => p.name).join(', ')})` : ''} · skills ${skillCount} · mcp servers ${mcpCount}`,
-            `tokens ${session.tokenUsage.input} in / ${session.tokenUsage.output} out · ~$${session.tokenUsage.estimatedCostUsd.toFixed(4)}`,
+            `context ~${fill}/${budget} tok (${Math.min(100, (fill / budget) * 100).toFixed(1)}%) · lifetime ${live.tokenUsage.input} in / ${live.tokenUsage.output} out · ~$${live.tokenUsage.estimatedCostUsd.toFixed(4)}`,
+            `auto-compact: ${config.sessions.autoCompact ? 'on' : 'off'} (ratio ${config.sessions.autoCompactRatio} · threshold ${config.sessions.autoCompactThreshold})`,
             activePlugin ? `active plugin: ${activePlugin}` : 'no plugin active this turn',
-            session.lastTurnInterrupted ? '⚠ last turn was interrupted — history may be incomplete' : 'session healthy',
+            live.lastTurnInterrupted ? '⚠ last turn was interrupted — history may be incomplete' : 'session healthy',
           ].join('\n'),
         );
         break;
       }
       case 'cost': {
-        const usageLine = `Tokens: ${session.tokenUsage.input} in / ${session.tokenUsage.output} out · ~$${session.tokenUsage.estimatedCostUsd.toFixed(4)}`;
+        const usageLine = `Tokens: ${live.tokenUsage.input} in / ${live.tokenUsage.output} out · ~$${live.tokenUsage.estimatedCostUsd.toFixed(4)}`;
         const flag = (arg ?? '').trim().toLowerCase();
         if (!flag) {
           pushLog(
@@ -434,7 +492,7 @@ export function App(props: AppProps): React.ReactElement {
           break;
         }
         setShowCost(next);
-        setCostUsd(session.tokenUsage.estimatedCostUsd);
+        setCostUsd(live.tokenUsage.estimatedCostUsd);
         config.tui.theme.layout.showCost = next;
         try {
           writeConfig(config);
@@ -452,21 +510,27 @@ export function App(props: AppProps): React.ReactElement {
       case 'diff':
         pushLog('system', `${filesEdited} file(s) edited this session. Run \`git diff\` to review.`);
         break;
-      case 'compact':
-        // Trigger by lowering effective history via a marker message the loop will compact next turn.
-        if (session.messages.length > 4) {
-          const keep = session.messages.slice(-6);
-          const dropped = session.messages.length - keep.length;
-          session.messages = [
-            { role: 'user', content: `[compacted ${dropped} earlier messages]` },
-            ...keep,
-          ];
-          store.save(session);
-          pushLog('system', `Compacted ${dropped} messages. Context reclaimed.`);
-        } else {
+      case 'compact': {
+        if (live.messages.filter((m) => m.role !== 'system').length <= 4) {
           pushLog('system', 'Nothing to compact yet.');
+          break;
         }
+        const result = compactSessionMessages(live.messages, {
+          keepRecent: 6,
+          stubToolResults: true,
+          reason: 'manual',
+        });
+        live.messages = result.messages;
+        store.save(live);
+        setContextFill(estimateMessageTokens(live.messages));
+        pushLog(
+          'system',
+          result.dropped > 0
+            ? `Compacted ${result.dropped} messages. Context reclaimed.`
+            : 'Stubbed large tool results. Context reclaimed.',
+        );
         break;
+      }
       case 'plugin':
         void runPluginSlash(arg ?? '');
         break;
@@ -777,7 +841,10 @@ export function App(props: AppProps): React.ReactElement {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const pct = tokenLimit > 0 ? ((tokenUsed / tokenLimit) * 100).toFixed(1) : '0.0';
+  const pct =
+    contextBudgetTokens > 0
+      ? Math.min(100, (contextFill / contextBudgetTokens) * 100).toFixed(1)
+      : '0.0';
 
   return (
     <Box flexDirection="column">
@@ -801,7 +868,7 @@ export function App(props: AppProps): React.ReactElement {
         model={model}
         pct={pct}
         files={filesEdited}
-        sessionId={session.id}
+        sessionId={sessionId}
         showCost={showCost}
         costUsd={costUsd}
         showTokenBar={config.tui.theme.layout.showTokenBar !== false}

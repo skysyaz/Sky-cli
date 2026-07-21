@@ -57,6 +57,17 @@ export async function renderStream(
         break;
       case 'usage':
         break;
+      case 'session-compacted':
+        if (streaming) {
+          process.stdout.write('\n');
+          streaming = false;
+        }
+        process.stdout.write(
+          c.gray(
+            `${HEX} auto-compact (${event.reason}): dropped ${event.dropped}, kept ${event.remaining}\n`,
+          ),
+        );
+        break;
       case 'turn-end':
         if (streaming) process.stdout.write('\n');
         process.stdout.write(c.green(`${HEX} Done\n`));
