@@ -16,6 +16,7 @@ import {
 } from './commands.js';
 import { updateCommand } from './update.js';
 import { pluginCommand } from './plugin.js';
+import { serveCommand, daemonCommand, attachCommand } from './daemon-cmd.js';
 
 const VERSION = '1.1.0';
 
@@ -163,6 +164,30 @@ function build(): Command {
     .action((opts: { port?: number; open?: boolean }) =>
       run(() => dashboardCommand(opts, globalOptions(program))),
     );
+
+  program
+    .command('serve')
+    .description('run the Sky agent daemon in the foreground (HTTP + SSE on 127.0.0.1)')
+    .option('--port <port>', 'port to bind (default: ephemeral)', (v) => Number(v))
+    .option('--register', 'write ~/.sky/daemon.json for sky attach / daemon status')
+    .option('--yolo', 'auto-approve tools for all daemon turns')
+    .action((opts: { port?: number; register?: boolean; yolo?: boolean }) =>
+      run(() => serveCommand(opts, globalOptions(program))),
+    );
+
+  program
+    .command('daemon [action]')
+    .description('manage background daemon: start | stop | status')
+    .option('--port <port>', 'port when starting', (v) => Number(v))
+    .option('--yolo', 'start daemon with auto-approve')
+    .action((action: string | undefined, opts: { port?: number; yolo?: boolean }) =>
+      run(() => daemonCommand(action, opts, globalOptions(program))),
+    );
+
+  program
+    .command('attach [prompt]')
+    .description('one-shot prompt against a running daemon (NDJSON events on stdout)')
+    .action((prompt: string | undefined) => run(() => attachCommand(prompt, globalOptions(program))));
 
   program
     .command('forge [action] [id]')

@@ -15,6 +15,7 @@ export * as tools from './tools/index.js';
 export * as agent from './agent/index.js';
 export * as skills from './skills/index.js';
 export * as mcp from './mcp/index.js';
+export * as protocol from './protocol/api.js';
 
 // Commonly used entry points, re-exported flat for convenience.
 export { SkyError, ErrorCode } from './errors/index.js';
@@ -24,3 +25,5 @@ export { AgentLoop } from './agent/index.js';
 export { createProvider, MockProvider } from './llm/index.js';
 export { ToolRegistry } from './tools/index.js';
 export { Policy, Approver, AuditLog } from './safety/index.js';
+export { startDaemonHttp, generateDaemonToken } from './server/http.js';
+export { readDaemonState, startDetachedDaemon, stopDaemon } from './server/daemon.js';

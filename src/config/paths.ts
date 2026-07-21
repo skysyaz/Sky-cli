@@ -66,3 +66,12 @@ export function skillsDir(): string {
 export function secretsFilePath(): string {
   return join(skyHome(), 'secrets.json');
 }
+
+/** Daemon registration (URL, PID, token, version) for OpenCode-style attach. */
+export function daemonStatePath(): string {
+  return join(skyHome(), 'daemon.json');
+}
+
+export function daemonPidPath(): string {
+  return join(skyHome(), 'daemon.pid');
+}
