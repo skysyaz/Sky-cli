@@ -36,6 +36,7 @@ import {
   streamDaemonMessage,
   abortDaemonSession,
 } from '../cli/client.js';
+import { applyTextDelta, supportsLiveStreamRewrite } from './stream.js';
 
 export interface AppProps {
   /** Lazily create a provider by name so a config error (e.g. missing API key)
@@ -112,6 +113,8 @@ export function App(props: AppProps): React.ReactElement {
   const attachTransportRef = useRef<{ url: string; token: string } | null>(null);
   const remoteSessionIdRef = useRef<string | null>(props.attach ? null : session.id);
   const [attachReady, setAttachReady] = useState(!props.attach);
+  /** Termux cannot rewrite live stream lines — commit once at turn-end instead. */
+  const liveStreamRef = useRef(supportsLiveStreamRewrite());
 
   // Flatten plugin-contributed commands for the palette and for execution.
   const pluginCommands = useMemo<PluginCommand[]>(() => plugins.flatMap((p) => p.commands), [plugins]);
@@ -270,8 +273,8 @@ export function App(props: AppProps): React.ReactElement {
       for await (const event of loop.run(prompt)) {
         switch (event.type) {
           case 'text-delta':
-            streamed += event.text;
-            setStreaming(streamed);
+            streamed = applyTextDelta(streamed, event.text);
+            if (liveStreamRef.current) setStreaming(streamed);
             break;
           case 'tool-call': {
             pushLog('tool', `${GLYPH} ${event.toolCall.name} ${summarize(event.toolCall.input)}`);
@@ -363,8 +366,8 @@ export function App(props: AppProps): React.ReactElement {
         switch (type) {
           case 'text-delta': {
             const text = (event as { text?: string }).text ?? '';
-            streamed += text;
-            setStreaming(streamed);
+            streamed = applyTextDelta(streamed, text);
+            if (liveStreamRef.current) setStreaming(streamed);
             break;
           }
           case 'tool-call': {
@@ -385,7 +388,10 @@ export function App(props: AppProps): React.ReactElement {
             break;
           }
           case 'usage':
+            // Metadata only — do not commit assistant text (turn-end does that).
+            break;
           case 'turn-end':
+          case 'done':
             if (streamed.trim()) pushLog('assistant', streamed.trim());
             streamed = '';
             setStreaming('');
