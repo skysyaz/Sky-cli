@@ -17,9 +17,20 @@ export const providerNameSchema = z.enum([
   'gemini',
   'deepseek',
   'groq',
+  'qwen-web',
+  'zai-web',
+  'kimi-web',
+  'custom',
   'mock',
 ]);
 export type ProviderName = z.infer<typeof providerNameSchema>;
+
+/** Any provider id: built-in enum names, or a user-defined OpenAI-compatible name. */
+export const providerIdSchema = z
+  .string()
+  .min(1)
+  .regex(/^[a-z][a-z0-9_-]*$/i, 'Provider id must be alphanumeric (plus - _)');
+export type ProviderId = z.infer<typeof providerIdSchema>;
 
 const modelMetaSchema = z.object({
   contextWindow: z.number().int().positive().optional(),
@@ -29,7 +40,7 @@ const modelMetaSchema = z.object({
 });
 
 const fallbackSchema = z.object({
-  provider: providerNameSchema,
+  provider: providerIdSchema,
   model: z.string(),
   triggerAfter: z.number().int().nonnegative().default(4),
 });
@@ -171,7 +182,7 @@ const observabilitySchema = z
 /** A.1 top-level configuration schema. */
 export const configSchema = z.object({
   schemaVersion: z.literal(1).default(1),
-  defaultProvider: providerNameSchema.default('openai'),
+  defaultProvider: providerIdSchema.default('openai'),
   defaultModel: z.string().default('gpt-4o'),
   providers: z.record(providerConfigSchema).default({}),
   tools: toolsSchema,

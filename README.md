@@ -159,6 +159,10 @@ sky -s abc12 "continue…"    # attach to a session on start
 | `gemini` | `GEMINI_API_KEY` | Google OpenAI-compat endpoint |
 | `deepseek` | `DEEPSEEK_API_KEY` | |
 | `groq` | `GROQ_API_KEY` | |
+| `qwen-web` | `DASHSCOPE_API_KEY` | Qwen via DashScope compatible-mode (free-tier key from Model Studio) |
+| `zai-web` | `ZAI_API_KEY` | Z.AI / GLM (`https://api.z.ai/api/paas/v4`) |
+| `kimi-web` | `MOONSHOT_API_KEY` | Moonshot Kimi (`https://api.moonshot.ai/v1`) |
+| `custom` | `/key` or `SKY_CUSTOM_API_KEY` | Your OpenAI-compatible `providers.custom.baseUrl` |
 | `mock` | _(none)_ | Offline / tests |
 
 ```bash

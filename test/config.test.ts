@@ -58,10 +58,24 @@ describe('config precedence (§7.6)', () => {
 
   it('rejects an invalid config with SKY-E-1003', () => {
     const path = join(dir, 'config.json');
-    writeFileSync(path, JSON.stringify({ defaultProvider: 'not-a-provider' }));
+    writeFileSync(path, JSON.stringify({ defaultProvider: '!!!bad!!!' }));
     expect(() => loadConfig({ path, cwd: dir })).toThrowError(
       expect.objectContaining({ code: ErrorCode.ConfigValidationFailed }),
     );
+  });
+
+  it('allows a custom OpenAI-compatible defaultProvider name', () => {
+    const path = join(dir, 'config.json');
+    writeFileSync(
+      path,
+      JSON.stringify({
+        defaultProvider: 'myllm',
+        providers: { myllm: { baseUrl: 'https://llm.example.com/v1', defaultModel: 'x' } },
+      }),
+    );
+    const config = loadConfig({ path, cwd: dir });
+    expect(config.defaultProvider).toBe('myllm');
+    expect(config.providers.myllm?.baseUrl).toBe('https://llm.example.com/v1');
   });
 
   it('reports a parse failure with SKY-E-1001', () => {

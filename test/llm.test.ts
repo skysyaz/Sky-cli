@@ -117,3 +117,32 @@ describe('cost estimation (§8.9)', () => {
     expect(estimateCost('mystery', { inputTokens: 100, outputTokens: 100 })).toBe(0);
   });
 });
+
+describe('createProvider web + custom', () => {
+  it('builds qwen-web / zai-web / kimi-web adapters', async () => {
+    const { createProvider } = await import('../src/llm/registry.js');
+    const { defaultConfig } = await import('../src/config/index.js');
+    const config = defaultConfig();
+    const env = {
+      DASHSCOPE_API_KEY: 'sk-qwen',
+      ZAI_API_KEY: 'sk-zai',
+      MOONSHOT_API_KEY: 'sk-kimi',
+    };
+    expect(createProvider({ config, provider: 'qwen-web', env }).name).toBe('qwen-web');
+    expect(createProvider({ config, provider: 'zai-web', env }).name).toBe('zai-web');
+    expect(createProvider({ config, provider: 'kimi-web', env }).name).toBe('kimi-web');
+  });
+
+  it('requires baseUrl for custom', async () => {
+    const { createProvider } = await import('../src/llm/registry.js');
+    const { defaultConfig } = await import('../src/config/index.js');
+    expect(() => createProvider({ config: defaultConfig(), provider: 'custom', env: {} })).toThrowError(
+      expect.objectContaining({ code: ErrorCode.UnknownProvider }),
+    );
+    const config = defaultConfig();
+    config.providers.custom = { baseUrl: 'https://llm.example.com/v1' };
+    expect(
+      createProvider({ config, provider: 'custom', env: { SKY_CUSTOM_API_KEY: 'sk' } }).name,
+    ).toBe('custom');
+  });
+});
