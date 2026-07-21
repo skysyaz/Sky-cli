@@ -104,9 +104,10 @@ describe('secret resolution (§7.7)', () => {
     expect(resolveApiKey('ollama', undefined, undefined, {})).toBe('');
     expect(resolveApiKey('mock', undefined, undefined, {})).toBe('');
   });
-  it('requires a key for hosted opencode', () => {
-    expect(() => resolveApiKey('opencode', undefined, undefined, {})).toThrowError(
-      expect.objectContaining({ code: ErrorCode.NoApiKey }),
-    );
+  it('uses the public guest token for opencode when no key is set', () => {
+    expect(resolveApiKey('opencode', undefined, undefined, {})).toBe('public');
+  });
+  it('still prefers OPENCODE_API_KEY when set', () => {
+    expect(resolveApiKey('opencode', undefined, undefined, { OPENCODE_API_KEY: 'sk-zen' })).toBe('sk-zen');
   });
 });

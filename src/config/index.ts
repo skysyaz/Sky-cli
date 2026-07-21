@@ -15,6 +15,7 @@ export {
   clearSecret,
   hasApiKey,
   secretsPath,
+  OPENCODE_FREE_MODELS,
 } from './secrets.js';
 
 /** Overrides supplied from the command line (precedence level 5 — highest). */

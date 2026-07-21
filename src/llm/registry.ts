@@ -19,7 +19,7 @@ const OLLAMA_DEFAULT_BASE_URL = 'http://localhost:11434/v1';
 const OLLAMA_CLOUD_BASE_URL = 'https://ollama.com/v1';
 const OPENROUTER_BASE_URL = 'https://openrouter.ai/api/v1';
 const ZENMUX_BASE_URL = 'https://zenmux.ai/api/v1';
-const OPENCODE_BASE_URL = 'https://opencode.ai/api/v1';
+const OPENCODE_BASE_URL = 'https://opencode.ai/zen/v1';
 const GEMINI_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta/openai/';
 const DEEPSEEK_BASE_URL = 'https://api.deepseek.com/v1';
 const GROQ_BASE_URL = 'https://api.groq.com/openai/v1';
@@ -81,9 +81,12 @@ export function createProvider(options: CreateProviderOptions): Provider {
       });
 
     case 'opencode':
+      // OpenCode Zen gateway. Free models work with the public guest token;
+      // paid models need OPENCODE_API_KEY / /key. Endpoint is /zen/v1 (not /api/v1).
       return new OpenAiAdapter({
         apiKey: resolveApiKey('opencode', providerConfig, logger, env),
         baseUrl: providerConfig?.baseUrl ?? OPENCODE_BASE_URL,
+        defaultHeaders: { 'HTTP-Referer': 'https://github.com/skysyaz/Sky-cli', 'X-Title': 'Sky CLI' },
         name: 'opencode',
       });
 

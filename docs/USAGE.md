@@ -164,8 +164,14 @@ sky -p openrouter -m openai/gpt-4o "…"
 sky -p gemini "…"
 sky -p deepseek "…"
 sky -p groq -m llama-3.3-70b-versatile "…"
+sky -p opencode "…"   # free models (e.g. deepseek-v4-flash-free) need no key
 sky -p mock ask "offline smoke test"
 ```
+
+OpenCode Zen free models (`deepseek-v4-flash-free`, `mimo-v2.5-free`, …) use a
+public guest token automatically. For **paid** Zen models, set
+`OPENCODE_API_KEY` or run `/key <value>` after signing in at
+[opencode.ai/auth](https://opencode.ai/auth).
 
 Or switch live:
 
