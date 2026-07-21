@@ -9,6 +9,7 @@ import { renderStream } from './render.js';
 import { createInteractivePrompter, denyingPrompter } from './prompter.js';
 import { makeApprover, makeProvider, makeProviderByName, attachMcp, type GlobalOptions, type Runtime } from './runtime.js';
 import { preferSimpleTui } from '../tui/stream.js';
+import { modelsForProvider, providersForPalette } from '../tui/commands.js';
 
 export interface RunSessionOptions {
   runtime: Runtime;
@@ -150,7 +151,7 @@ export async function runSession(options: RunSessionOptions): Promise<number> {
 }
 
 /** Handle a slash command (§5.5). Returns whether to exit and an optional new session. */
-function handleSlashCommand(
+export function handleSlashCommand(
   line: string,
   session: Session,
   runtime: Runtime,
@@ -165,8 +166,8 @@ function handleSlashCommand(
         [
           '/help                 show this help',
           '/mode [agent|plan|ask] switch mode',
-          '/model <name>         switch model',
-          '/provider <name>      switch LLM provider',
+          '/model [name]         list or switch model',
+          '/provider [name]      list or switch provider (free → opencode)',
           '/key <api-key>        save API key securely (secrets file)',
           '/status               show session status',
           '/cost                 show token & cost usage',
@@ -190,13 +191,48 @@ function handleSlashCommand(
       }
       return { done: false };
     }
-    case 'model':
-      if (rest[0]) {
-        session.model = rest[0];
-        runtime.store.save(session);
-        process.stdout.write(`Model set to ${rest[0]}.\n`);
+    case 'model': {
+      const name = rest[0];
+      if (!name) {
+        const models = modelsForProvider(session.provider, session.model);
+        process.stdout.write(
+          `Current: ${session.provider}:${session.model}\n` +
+            `Models for ${session.provider} (use /model <name>):\n` +
+            models.map((m) => `  ${m === session.model ? '❯ ' : '  '}${m}`).join('\n') +
+            '\n',
+        );
+        return { done: false };
       }
+      session.model = name;
+      runtime.store.save(session);
+      process.stdout.write(`Model set to ${name}.\n`);
       return { done: false };
+    }
+    case 'provider': {
+      const available = providersForPalette(runtime.config.providers);
+      const raw = rest[0];
+      if (!raw) {
+        process.stdout.write(
+          `Current: ${session.provider}:${session.model}\n` +
+            `Providers (use /provider <name>, or /provider free):\n` +
+            available.map((p) => `  ${p === session.provider ? '❯ ' : '  '}${p}`).join('\n') +
+            '\n',
+        );
+        return { done: false };
+      }
+      const target = raw === 'free' ? 'opencode' : raw;
+      if (!available.includes(target) && target !== 'opencode') {
+        process.stdout.write(`Unknown provider: ${raw}. Try /provider for a list.\n`);
+        return { done: false };
+      }
+      session.provider = target;
+      const defaultModel = runtime.config.providers[target]?.defaultModel;
+      if (defaultModel) session.model = defaultModel;
+      else if (target === 'opencode') session.model = 'deepseek-v4-flash-free';
+      runtime.store.save(session);
+      process.stdout.write(`Provider → ${target} · model ${session.model}\n`);
+      return { done: false };
+    }
     case 'cost':
       process.stdout.write(
         `Tokens: ${session.tokenUsage.input} in / ${session.tokenUsage.output} out · ~$${session.tokenUsage.estimatedCostUsd.toFixed(4)}\n`,
