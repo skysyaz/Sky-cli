@@ -68,3 +68,26 @@ describe('modelsForProvider / modelTag', () => {
     expect(modelTag('gpt-4o')).toBe('openai');
   });
 });
+
+describe('paletteWindow scroll', () => {
+  it('keeps the selected item visible when scrolling past the first page', async () => {
+    const { paletteWindow } = await import('../src/tui/commands.js');
+    const items = Array.from({ length: 25 }, (_, i) => `m${i}`);
+    const top = paletteWindow(items, 0, 10);
+    expect(top.visible).toEqual(items.slice(0, 10));
+    expect(top.localSelected).toBe(0);
+    expect(top.hasAbove).toBe(false);
+    expect(top.hasBelow).toBe(true);
+
+    const mid = paletteWindow(items, 14, 10);
+    expect(mid.visible).toContain('m14');
+    expect(mid.visible[mid.localSelected]).toBe('m14');
+    expect(mid.hasAbove).toBe(true);
+    expect(mid.hasBelow).toBe(true);
+
+    const bottom = paletteWindow(items, 24, 10);
+    expect(bottom.visible).toEqual(items.slice(15, 25));
+    expect(bottom.localSelected).toBe(9);
+    expect(bottom.hasBelow).toBe(false);
+  });
+});
