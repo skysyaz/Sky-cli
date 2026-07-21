@@ -85,6 +85,11 @@ export class McpClient {
     this.child.stderr.on('data', (chunk: string) => {
       this.logger.debug('mcp.stderr', { name: this.server.name, chunk: chunk.slice(0, 200) });
     });
+    this.child.on('error', (error) => {
+      this.logger.warn('mcp.spawnFailed', { name: this.server.name, detail: error.message });
+      this.failAll(new SkyError(ErrorCode.McpNotConnected, { name: this.server.name }, error));
+      this.closed = true;
+    });
     this.child.on('exit', (code) => {
       this.logger.info('mcp.exit', { name: this.server.name, code });
       this.failAll(new SkyError(ErrorCode.McpNotConnected, { name: this.server.name }));
