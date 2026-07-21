@@ -18,8 +18,16 @@ export interface CompactOptions {
   keepRecent?: number;
   /** Stub large tool payloads in the kept window (default false). */
   stubToolResults?: boolean;
-  /** Max chars kept for a stubbed tool result (default 120). */
+  /**
+   * Max chars kept as a prefix when stubbing a tool result (default 120).
+   * Older tools beyond `protectRecentTools` are trimmed to this prefix + marker.
+   */
   stubMaxChars?: number;
+  /**
+   * Newest tool messages to leave intact when stubbing (default 0).
+   * Prevents explore→compact→forget loops mid-turn.
+   */
+  protectRecentTools?: number;
   reason?: CompactReason;
 }
 
@@ -51,12 +59,18 @@ export function contextBudget(limits: CompactLimits, safetyMargin = 2048): numbe
 
 /**
  * Whether proactive auto-compact should run before the next provider call.
- * Triggers on cumulative usage threshold OR when estimated history fills
- * `autoCompactRatio` of the model budget (whichever comes first).
+ *
+ * Triggers when **current history size** (estimated tokens) hits either:
+ * - `autoCompactThreshold` (absolute), or
+ * - `autoCompactRatio` of the model budget
+ *
+ * Important: do NOT use lifetime `tokenUsage` here — that never resets after
+ * compact and causes perpetual re-compact → forget → re-explore loops.
  */
 export function shouldAutoCompact(options: {
   messages: Message[];
-  cumulativeTokens: number;
+  /** Ignored for triggers (kept for callers); use history estimate instead. */
+  cumulativeTokens?: number;
   limits: CompactLimits;
   autoCompact: boolean;
   autoCompactThreshold: number;
@@ -66,24 +80,39 @@ export function shouldAutoCompact(options: {
   const nonSystem = options.messages.filter((m) => m.role !== 'system').length;
   if (nonSystem < 6) return false;
 
-  if (options.cumulativeTokens >= options.autoCompactThreshold) return true;
+  const used = estimateMessageTokens(options.messages);
+  if (used >= options.autoCompactThreshold) return true;
 
   const budget = contextBudget(options.limits);
   if (budget <= 0) return true;
-  const used = estimateMessageTokens(options.messages);
   return used >= budget * options.autoCompactRatio;
 }
 
-function stubToolContent(content: string): string {
+function stubToolContent(content: string, maxChars: number): string {
   const bytes = Buffer.byteLength(content);
-  return `[tool result trimmed] (${bytes} bytes)`;
+  if (maxChars <= 0) return `[tool result trimmed] (${bytes} bytes)`;
+  const prefix = content.slice(0, maxChars);
+  return `${prefix}\n… [tool result trimmed] (${bytes} bytes total)`;
 }
 
-function maybeStubTools(messages: Message[], stub: boolean, maxChars: number): Message[] {
+function maybeStubTools(
+  messages: Message[],
+  stub: boolean,
+  maxChars: number,
+  protectRecentTools: number,
+): Message[] {
   if (!stub) return messages;
-  return messages.map((m) => {
-    if (m.role === 'tool' && m.content.length > maxChars) {
-      return { ...m, content: stubToolContent(m.content) };
+  const protect = Math.max(0, protectRecentTools);
+  // Indices of tool messages from oldest → newest; protect the newest ones.
+  const toolIdx: number[] = [];
+  for (let i = 0; i < messages.length; i++) {
+    if (messages[i]?.role === 'tool') toolIdx.push(i);
+  }
+  const protectedSet = new Set(toolIdx.slice(Math.max(0, toolIdx.length - protect)));
+
+  return messages.map((m, i) => {
+    if (m.role === 'tool' && m.content.length > maxChars && !protectedSet.has(i)) {
+      return { ...m, content: stubToolContent(m.content, maxChars) };
     }
     return m;
   });
@@ -96,13 +125,19 @@ function maybeStubTools(messages: Message[], stub: boolean, maxChars: number): M
 export function compactSessionMessages(messages: Message[], options: CompactOptions = {}): CompactResult {
   const keepRecent = Math.max(2, options.keepRecent ?? 8);
   const stubMaxChars = options.stubMaxChars ?? 120;
+  const protectRecentTools = options.protectRecentTools ?? 0;
   const reason = options.reason ?? 'manual';
 
   const systemKeep = messages.filter((m) => m.role === 'system');
   const nonSystem = messages.filter((m) => m.role !== 'system');
 
   if (nonSystem.length <= keepRecent) {
-    const stubbed = maybeStubTools(messages, Boolean(options.stubToolResults), stubMaxChars);
+    const stubbed = maybeStubTools(
+      messages,
+      Boolean(options.stubToolResults),
+      stubMaxChars,
+      protectRecentTools,
+    );
     return { messages: stubbed, dropped: 0, reason };
   }
 
@@ -115,14 +150,27 @@ export function compactSessionMessages(messages: Message[], options: CompactOpti
 
   const dropped = nonSystem.length - recent.length;
   if (dropped <= 0) {
-    const stubbed = maybeStubTools(messages, Boolean(options.stubToolResults), stubMaxChars);
+    const stubbed = maybeStubTools(
+      messages,
+      Boolean(options.stubToolResults),
+      stubMaxChars,
+      protectRecentTools,
+    );
     return { messages: stubbed, dropped: 0, reason };
   }
 
-  const keptRecent = maybeStubTools(recent, Boolean(options.stubToolResults), stubMaxChars);
+  const keptRecent = maybeStubTools(
+    recent,
+    Boolean(options.stubToolResults),
+    stubMaxChars,
+    protectRecentTools,
+  );
   const summary: Message = {
     role: 'user',
-    content: `[compacted ${dropped} earlier messages to reclaim context]`,
+    content:
+      `[compacted ${dropped} earlier messages to reclaim context] ` +
+      `Do not re-explore the whole repo from scratch — reuse what you already know, ` +
+      `and only re-read files when a tool result was trimmed or you need fresh content.`,
   };
 
   return {
@@ -156,7 +204,16 @@ export function sanitizeToolTurns(messages: Message[]): Message[] {
 
 /** Progressively more aggressive keep counts for overflow retries. */
 export function overflowKeepRecent(attempt: number): number {
-  if (attempt <= 0) return 6;
-  if (attempt === 1) return 4;
-  return 2;
+  if (attempt <= 0) return 12;
+  if (attempt === 1) return 6;
+  return 3;
 }
+
+/** Default keep window for proactive (threshold/ratio) auto-compact. */
+export const AUTO_COMPACT_KEEP_RECENT = 24;
+
+/** Newest tool results left intact during proactive auto-compact. */
+export const AUTO_COMPACT_PROTECT_TOOLS = 8;
+
+/** Prefix length when stubbing older tool payloads during auto-compact. */
+export const AUTO_COMPACT_STUB_CHARS = 1500;

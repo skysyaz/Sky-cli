@@ -30,7 +30,7 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 - In-cwd `read` is auto-approved by default (secret denylist still wins).
-- `/compact` actually trims session history; auto-compact still runs past the token threshold.
+- `/compact` actually trims session history; auto-compact uses **current** history size (not lifetime tokens) and preserves recent tool results to avoid explore→forget loops.
 - Provider fallback (`providers.*.fallback`) is consulted after repeated stream failures.
 - Version bumped to **1.1.0**.
 

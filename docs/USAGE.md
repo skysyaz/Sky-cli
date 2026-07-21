@@ -163,9 +163,11 @@ Started automatically when your terminal is interactive (not `--json`).
 /exit
 ```
 
-Long sessions stay usable: Sky auto-compacts when estimated history fills ~55% of the
-model budget (or past `sessions.autoCompactThreshold`), and again if a turn still
-hits the context limit. Use `/new` anytime you want a clean slate without quitting.
+Long sessions stay usable: Sky auto-compacts when estimated **current** history fills
+~70% of the model budget (or past `sessions.autoCompactThreshold`), and again if a turn still
+hits the context limit. Lifetime token counters are not used as a trigger (that caused
+perpetual re-compact loops). Newest tool results are kept intact so the model does not
+forget files it just read. Use `/new` anytime you want a clean slate without quitting.
 
 **Approvals:** agent mode still asks before shell/writes unless you enable YOLO
 (`sky --yolo`, `sky yolo`, or `/yolo on`). Hard denylist always wins.

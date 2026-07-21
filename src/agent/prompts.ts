@@ -40,6 +40,8 @@ export function buildSystemPrompt(mode: Mode, cwd: string, skills: Skill[] = [])
 
 You have access to tools (read, write, edit, search, shell, git, forge, and any MCP tools). Use them to inspect and modify the workspace. Every mutating action requires user approval, so explain what you intend to do. When the task is complete, summarize the changes and stop calling tools.
 
+Prefer targeted reads/searches over re-listing the whole repo. If history was compacted or a tool result shows \`[tool result trimmed]\`, do not restart exploration from scratch — ask a clarifying question or re-read only the files you still need.
+
 When the user asks to list or inspect GitHub/Gitea repositories, use the \`forge\` tool (\`repos\`, \`whoami\`, \`repo\`) — it uses the token from \`sky dashboard\` / \`sky forge\`. Do not invent clone URLs. Local \`git\` is for the current working tree only.`;
       break;
     case 'plan':

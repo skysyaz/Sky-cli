@@ -140,14 +140,16 @@ const sessionsSchema = z
   .object({
     /** Proactively compact history before / on context overflow (default on). */
     autoCompact: z.boolean().default(true),
-    /** Cumulative session tokens that trigger a compact (fallback trigger). */
+    /**
+     * Estimated **current history** tokens that trigger a compact (absolute).
+     * Not lifetime usage — lifetime never resets and caused re-compact loops.
+     */
     autoCompactThreshold: z.number().int().positive().default(30_000),
     /**
      * Compact when estimated history tokens reach this fraction of the model's
-     * usable context budget (contextWindow − maxOutput − margin). Keeps long
-     * sessions alive on small free-tier windows.
+     * usable context budget (contextWindow − maxOutput − margin).
      */
-    autoCompactRatio: z.number().min(0.2).max(0.95).default(0.55),
+    autoCompactRatio: z.number().min(0.2).max(0.95).default(0.7),
     retentionDays: z.number().int().positive().default(90),
     budgetUsd: z.number().nonnegative().optional(),
   })
