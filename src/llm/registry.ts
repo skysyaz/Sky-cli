@@ -11,6 +11,8 @@ export interface CreateProviderOptions {
   provider: string;
   logger?: Logger;
   env?: NodeJS.ProcessEnv;
+  /** Active model — used so OpenCode free models ignore a stale API key. */
+  model?: string;
   /** Inject a provider directly (tests, `--provider mock`). */
   override?: Provider;
 }
@@ -41,6 +43,7 @@ export function createProvider(options: CreateProviderOptions): Provider {
   if (provider === 'mock') return new MockProvider();
 
   const providerConfig = config.providers[provider];
+  const model = options.model ?? providerConfig?.defaultModel;
 
   switch (provider) {
     case 'openai':
@@ -87,12 +90,14 @@ export function createProvider(options: CreateProviderOptions): Provider {
       });
 
     case 'opencode':
-      // OpenCode Zen gateway. Free models work with the public guest token;
-      // paid models need OPENCODE_API_KEY / /key. Endpoint is /zen/v1 (not /api/v1).
+      // OpenCode Zen gateway. Free models always use the public guest token so a
+      // stale OPENCODE_API_KEY cannot cause SKY-E-5011. Paid models use /key.
       // Free models stream long reasoning_content and stall on huge max_tokens /
       // include_usage — keep budgets modest and skip usage streaming.
       return new OpenAiAdapter({
-        apiKey: resolveApiKey('opencode', providerConfig, logger, env),
+        apiKey: resolveApiKey('opencode', providerConfig, logger, env, {
+          model: model ?? 'deepseek-v4-flash-free',
+        }),
         baseUrl: providerConfig?.baseUrl ?? OPENCODE_BASE_URL,
         defaultHeaders: { 'HTTP-Referer': 'https://github.com/skysyaz/Sky-cli', 'X-Title': 'Sky CLI' },
         name: 'opencode',

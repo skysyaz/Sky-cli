@@ -33,7 +33,14 @@ export function providerErrorFromStatus(status: number | undefined, detail: stri
         cause,
       );
     case 401:
-      return new SkyError(ErrorCode.ProviderAuthFailed, {}, cause);
+      return new SkyError(
+        ErrorCode.ProviderAuthFailed,
+        {
+          detail:
+            ' — for OpenCode free models: `/keys clear opencode` (stale key overrides guest token), or get a Zen key at https://opencode.ai/auth',
+        },
+        cause,
+      );
     case 403:
       return new SkyError(ErrorCode.ProviderForbidden, { detail }, cause);
     case 451:

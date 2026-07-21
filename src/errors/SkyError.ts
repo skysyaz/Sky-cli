@@ -43,7 +43,8 @@ export class SkyError extends Error {
   static render(template: string, context: ErrorContext): string {
     return template.replace(/\{(\w+)\}/g, (_, key: string) => {
       const value = context[key];
-      return value === undefined ? `{${key}}` : String(value);
+      // Optional placeholders (e.g. auth hint) omit cleanly when unset.
+      return value === undefined || value === null ? '' : String(value);
     });
   }
 

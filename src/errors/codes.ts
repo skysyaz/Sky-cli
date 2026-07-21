@@ -161,7 +161,11 @@ export const ERROR_CATALOG: Record<ErrorCode, ErrorMeta> = {
   [ErrorCode.ProviderUnavailable]: { message: 'Provider temporarily unavailable (503)', retryable: true, exitCode: 66 },
   [ErrorCode.ProviderTimeout]: { message: 'Provider timeout after {n}ms', retryable: true, exitCode: 66 },
   [ErrorCode.ProviderBadRequest]: { message: 'Provider bad request (400): {detail}', retryable: false, exitCode: 66 },
-  [ErrorCode.ProviderAuthFailed]: { message: 'Provider authentication failed (401)', retryable: false, exitCode: 66 },
+  [ErrorCode.ProviderAuthFailed]: {
+    message: 'Provider authentication failed (401){detail}',
+    retryable: false,
+    exitCode: 66,
+  },
   [ErrorCode.ProviderForbidden]: { message: 'Provider forbidden (403): {detail}', retryable: false, exitCode: 66 },
   [ErrorCode.ProviderContentFilter]: { message: 'Provider requested content filter (451)', retryable: false, exitCode: 66 },
   [ErrorCode.ProviderStreamInterrupted]: {

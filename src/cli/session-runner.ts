@@ -78,7 +78,7 @@ export async function runSession(options: RunSessionOptions): Promise<number> {
   if (runTui) {
     await attachMcp(runtime);
     await runTui({
-      makeProvider: (name: string) => makeProviderByName(runtime, name),
+      makeProvider: (name: string, model?: string) => makeProviderByName(runtime, name, model),
       registry: runtime.registry,
       session,
       store: runtime.store,
