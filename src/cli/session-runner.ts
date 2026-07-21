@@ -8,6 +8,7 @@ import { Policy } from '../safety/policy.js';
 import { renderStream } from './render.js';
 import { createInteractivePrompter, denyingPrompter } from './prompter.js';
 import { makeApprover, makeProvider, makeProviderByName, attachMcp, type GlobalOptions, type Runtime } from './runtime.js';
+import { preferSimpleTui } from '../tui/stream.js';
 
 export interface RunSessionOptions {
   runtime: Runtime;
@@ -64,16 +65,24 @@ export async function runSession(options: RunSessionOptions): Promise<number> {
     return runTurn(options, options.initialPrompt);
   }
 
-  // Interactive: prefer the Cursor-style Ink TUI (slash palette, status bar,
-  // inline diff approvals). It is imported dynamically so headless mode never
-  // loads React/Ink. Only fall back to readline if Ink itself cannot load —
-  // NOT for provider/config errors, which the TUI surfaces in-UI. The provider
-  // is created lazily by the TUI so a missing API key never blocks startup.
+  // Interactive: prefer Ink TUI on capable terminals. On Termux/Android, Ink
+  // cannot rewrite frames — every keystroke duplicates the input box — so we
+  // default to the readline UI (`SKY_TUI=ink` forces Ink + alt-screen).
+  const wantSimple = preferSimpleTui();
   let runTui: typeof import('../tui/run.js').runTui | undefined;
-  try {
-    ({ runTui } = await import('../tui/run.js'));
-  } catch (error) {
-    runtime.logger.warn('tui.unavailable', { detail: (error as Error).message });
+  if (!wantSimple) {
+    try {
+      ({ runTui } = await import('../tui/run.js'));
+    } catch (error) {
+      runtime.logger.warn('tui.unavailable', { detail: (error as Error).message });
+    }
+  } else {
+    runtime.logger.info('tui.simple', {
+      detail: 'Termux/Android detected — using line UI. Set SKY_TUI=ink to force full TUI.',
+    });
+    process.stderr.write(
+      'Sky: Termux UI mode (line input). Fix for duplicate boxes. Set SKY_TUI=ink for full TUI.\n',
+    );
   }
   if (runTui) {
     await attachMcp(runtime);
