@@ -256,8 +256,8 @@ sky --force --quiet -p mock ask "ping"
 | Flag | Meaning |
 | --- | --- |
 | `--yolo` | Auto-approve every tool call (implies `--force`) |
-| `sky yolo [prompt]` | Same as `sky --yolo` |
-| `/yolo on\|off\|toggle` | Mid-session auto-approve (typing `yolo` as chat does **not**) |
+| `sky yolo [prompt]` | Same as `sky --yolo` — start with auto-approve |
+| `/yolo on\|off\|toggle` | Toggle auto-approve mid-session (typing `yolo` as chat does **not**) |
 | `--force` | Skip prompts but still obey the hard denylist |
 | `--json` | Stream NDJSON agent events on stdout |
 | `--quiet` | Suppress non-error stderr |

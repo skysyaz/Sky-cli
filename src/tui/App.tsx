@@ -1049,6 +1049,7 @@ function StatusBar({
     hasPlugins: pluginNames.length > 0,
   });
   const pluginText = pluginStatusText(pluginNames, activePlugin);
+  // Short model id for narrow Termux rows (avoid wrap splitting pl:ponytail).
   const modelShort = model.length > 24 ? `${model.slice(0, 22)}…` : model;
 
   return (

@@ -55,6 +55,14 @@ describe('plugin-status helpers', () => {
     ).toBe('cyan');
     expect(
       pluginStatusColor({
+        activePlugin: 'ponytail',
+        pluginsHighlight: false,
+        busy: true,
+        hasPlugins: true,
+      }),
+    ).toBe('cyan');
+    expect(
+      pluginStatusColor({
         activePlugin: null,
         pluginsHighlight: false,
         busy: false,
@@ -62,5 +70,6 @@ describe('plugin-status helpers', () => {
       }),
     ).toBe('gray');
     expect(pluginStatusText(['ponytail'], 'ponytail')).toBe('pl:ponytail●');
+    expect(pluginStatusText(['ponytail'], null)).toBe('pl:ponytail');
   });
 });
