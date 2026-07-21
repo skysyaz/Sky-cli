@@ -45,7 +45,8 @@ export class Policy {
     const { tool, input } = request;
 
     // --- 1. Denylist (always wins) ---
-    if (tool === 'shell') {
+    // `pty` shares shell denylist / allowlist / tiering (same command surface).
+    if (tool === 'shell' || tool === 'pty') {
       const command = String(input.command ?? '');
       const shell = classifyShellCommand(command);
       if (isHardDeniedShellCommand(command) || matchAnyCommand(command, this.tools().shell.deny, false)) {
@@ -62,7 +63,7 @@ export class Policy {
         // Tier-1 is auto-approved only when explicitly allowlisted; default prompt.
         return { decision: 'prompt', reason: 'tier-1 not allowlisted', shell };
       }
-      return { decision: 'prompt', reason: `shell tier-${shell.tier}: ${shell.reason}`, shell };
+      return { decision: 'prompt', reason: `${tool} tier-${shell.tier}: ${shell.reason}`, shell };
     }
 
     if (tool === 'read') {
@@ -139,8 +140,8 @@ export class Policy {
   private matchesSessionAllowlist(tool: string, target: string): boolean {
     return this.sessionAllowlist.some((entry) => {
       if (entry.tool !== tool) return false;
-      // shell patterns are command prefixes; path patterns are globs.
-      return tool === 'shell'
+      // shell/pty patterns are command prefixes; path patterns are globs.
+      return tool === 'shell' || tool === 'pty'
         ? matchCommandPattern(target, entry.pattern, true)
         : matchGlob(target, entry.pattern);
     });
@@ -151,7 +152,7 @@ export class Policy {
    * "always" (a) decision (§9.8).
    */
   static deriveAllowlistPattern(tool: string, input: Record<string, unknown>): AllowlistEntry {
-    if (tool === 'shell') {
+    if (tool === 'shell' || tool === 'pty') {
       const command = String(input.command ?? '').trim();
       const prefix = command.split(/\s+/).slice(0, 2).join(' ');
       return { tool, pattern: `${prefix}*` };

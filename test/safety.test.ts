@@ -58,6 +58,16 @@ describe('Policy engine (§9.2)', () => {
     const p = new Policy(config);
     expect(p.classify({ tool: 'shell', input: { command: 'rm -rf /' }, requiresApproval: true }).decision).toBe('deny');
   });
+  it('applies the same shell denylist to pty', () => {
+    const p = new Policy(config);
+    expect(p.classify({ tool: 'pty', input: { command: 'rm -rf /' }, requiresApproval: true }).decision).toBe('deny');
+    expect(p.classify({ tool: 'pty', input: { command: 'ls' }, requiresApproval: true }).decision).toBe('prompt');
+  });
+  it('derives pty allowlist patterns like shell', () => {
+    const entry = Policy.deriveAllowlistPattern('pty', { command: 'npm test --watch' });
+    expect(entry.tool).toBe('pty');
+    expect(entry.pattern).toBe('npm test*');
+  });
   it('prompts for a write by default', () => {
     const p = new Policy(config);
     expect(p.classify({ tool: 'write', input: { path: 'src/a.ts' }, requiresApproval: true }).decision).toBe('prompt');

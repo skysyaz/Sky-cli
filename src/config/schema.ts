@@ -161,6 +161,11 @@ const sessionsSchema = z
     maxIterations: z.number().int().positive().max(200).default(60),
     retentionDays: z.number().int().positive().default(90),
     budgetUsd: z.number().nonnegative().optional(),
+    /**
+     * Session persistence backend. `sqlite` uses Node's `node:sqlite` when
+     * available; falls back to JSON files otherwise.
+     */
+    backend: z.enum(['json', 'sqlite']).default('json'),
   })
   .default({});
 

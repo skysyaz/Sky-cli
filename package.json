@@ -23,6 +23,18 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
+    },
+    "./sdk": {
+      "types": "./dist/sdk/client.d.ts",
+      "import": "./dist/sdk/client.js"
+    },
+    "./protocol": {
+      "types": "./dist/protocol/api.d.ts",
+      "import": "./dist/protocol/api.js"
+    },
+    "./openapi": {
+      "types": "./dist/protocol/openapi.d.ts",
+      "import": "./dist/protocol/openapi.js"
     }
   },
   "files": [

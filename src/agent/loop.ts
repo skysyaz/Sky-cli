@@ -3,6 +3,7 @@ import { nullLogger, type Logger } from '../logging/index.js';
 import type { SkyConfig } from '../config/index.js';
 import type { Session, Message, ToolCall } from '../session/types.js';
 import type { SessionStore } from '../session/store.js';
+import type { AnySessionStore } from '../session/create-store.js';
 import {
   compactSessionMessages,
   shouldAutoCompact,
@@ -21,6 +22,7 @@ import { estimateCost } from '../llm/cost.js';
 import { createProvider } from '../llm/registry.js';
 import type { ToolRegistry } from '../tools/registry.js';
 import type { ToolContext } from '../tools/types.js';
+import { PARALLEL_SAFE_TOOLS } from '../tools/types.js';
 import type { Approver } from '../safety/approver.js';
 import type { Policy } from '../safety/policy.js';
 import { generateDiff } from '../safety/diff.js';
@@ -34,7 +36,7 @@ export interface AgentLoopOptions {
   approver: Approver;
   policy: Policy;
   session: Session;
-  store: SessionStore;
+  store: SessionStore | AnySessionStore;
   config: SkyConfig;
   logger?: Logger;
   signal?: AbortSignal;
@@ -109,6 +111,7 @@ export class AgentLoop {
 
         // Plan/ask: reject mutating tools even if the model invents them.
         const access = toolsForMode(session.mode);
+        const allowedCalls: ToolCall[] = [];
         for (const toolCall of toolCalls) {
           if (access === 'readonly') {
             const allowed = filterToolsForMode(session.mode, [{ name: toolCall.name }]);
@@ -124,8 +127,11 @@ export class AgentLoop {
               continue;
             }
           }
-          yield* this.handleToolCall(session, toolCall);
+          allowedCalls.push(toolCall);
         }
+
+        // Approve serially, then settle parallel-safe tools concurrently.
+        yield* this.handleToolCalls(session, allowedCalls);
 
         // Last budgeted tool round — ask for a summary instead of SKY-E-2003.
         if (iteration === maxIterations - 1) {
@@ -407,44 +413,116 @@ export class AgentLoop {
     }
   }
 
-  /** Validate → approve (with diff) → execute a single tool call. */
-  private async *handleToolCall(session: Session, toolCall: ToolCall): AsyncGenerator<AgentEvent> {
+  /**
+   * Approve tool calls serially, then settle parallel-safe tools concurrently
+   * (OpenCode-style concurrent tool settlement). Mutating tools stay serial.
+   */
+  private async *handleToolCalls(session: Session, toolCalls: ToolCall[]): AsyncGenerator<AgentEvent> {
+    type Pending = {
+      toolCall: ToolCall;
+      input: Record<string, unknown>;
+      parallelSafe: boolean;
+    };
+    const toSettle: Pending[] = [];
+
+    for (const toolCall of toolCalls) {
+      const prepared = yield* this.prepareToolCall(session, toolCall);
+      if (prepared) {
+        toSettle.push({
+          toolCall: prepared.toolCall,
+          input: prepared.input,
+          parallelSafe: PARALLEL_SAFE_TOOLS.has(prepared.toolCall.name),
+        });
+      }
+    }
+
+    const parallel = toSettle.filter((p) => p.parallelSafe);
+    const serial = toSettle.filter((p) => !p.parallelSafe);
+
+    if (parallel.length > 0) {
+      const settled = await Promise.all(
+        parallel.map(async (p) => {
+          const result = await this.settlePrepared(session, p.toolCall, p.input);
+          return { p, result };
+        }),
+      );
+      for (const { p, result } of settled) {
+        this.opts.store.appendMessage(session, {
+          role: 'tool',
+          content: result.output,
+          toolCallId: p.toolCall.id,
+          name: p.toolCall.name,
+        });
+        yield {
+          type: 'tool-result',
+          toolCallId: p.toolCall.id,
+          toolName: p.toolCall.name,
+          ok: result.ok,
+          output: result.output,
+        };
+      }
+    }
+
+    for (const p of serial) {
+      const result = await this.settlePrepared(session, p.toolCall, p.input);
+      this.opts.store.appendMessage(session, {
+        role: 'tool',
+        content: result.output,
+        toolCallId: p.toolCall.id,
+        name: p.toolCall.name,
+      });
+      yield {
+        type: 'tool-result',
+        toolCallId: p.toolCall.id,
+        toolName: p.toolCall.name,
+        ok: result.ok,
+        output: result.output,
+      };
+    }
+  }
+
+  /**
+   * Materialize + approve a tool call. Yields AgentEvents; returns prepared
+   * input for settle, or null when denied / invalid.
+   */
+  private async *prepareToolCall(
+    session: Session,
+    toolCall: ToolCall,
+  ): AsyncGenerator<AgentEvent, { toolCall: ToolCall; input: Record<string, unknown> } | null> {
     const { registry, approver, policy, store, config } = this.opts;
     yield { type: 'tool-call', toolCall };
 
-    const tool = registry.get(toolCall.name);
     const ctx: ToolContext = { cwd: session.cwd, config, logger: this.logger, signal: this.opts.signal };
 
-    // Validate before doing anything else (SKY-E-3001, retryable).
+    let materialized;
     try {
-      registry.validate(toolCall.name, toolCall.input);
+      materialized = await registry.materialize(toolCall.name, toolCall.input, ctx);
     } catch (error) {
       const skyError = SkyError.from(error, ErrorCode.ToolInputInvalid);
       const output = skyError.message;
       store.appendMessage(session, { role: 'tool', content: output, toolCallId: toolCall.id, name: toolCall.name });
       yield { type: 'tool-result', toolCallId: toolCall.id, toolName: toolCall.name, ok: false, output };
-      return;
+      return null;
     }
 
-    // Build a diff for mutating tools so the approval prompt can show it (§9.3).
     let diff: { path: string; patch: string; added: number; removed: number; sha256: string } | undefined;
-    if (tool?.preview) {
-      const preview = await tool.preview(toolCall.input as any, ctx);
-      if (preview) {
-        const d = generateDiff(preview.path, preview.oldContent, preview.newContent);
-        diff = { path: preview.path, patch: d.patch, added: d.added, removed: d.removed, sha256: d.sha256 };
-      }
+    if (materialized.preview) {
+      const d = generateDiff(
+        materialized.preview.path,
+        materialized.preview.oldContent,
+        materialized.preview.newContent,
+      );
+      diff = { path: materialized.preview.path, patch: d.patch, added: d.added, removed: d.removed, sha256: d.sha256 };
     }
 
-    const requiresApproval = tool ? tool.requiresApproval(toolCall.input as any) : true;
     yield { type: 'approval-request', toolCall, reason: 'policy check' };
 
     const result = await approver.request({
       sessionId: session.id,
       toolCallId: toolCall.id,
       toolName: toolCall.name,
-      input: toolCall.input,
-      requiresApproval,
+      input: materialized.input,
+      requiresApproval: materialized.requiresApproval,
       diff,
     });
 
@@ -468,35 +546,31 @@ export class AgentLoop {
           : `User declined the ${toolCall.name} action.`;
       store.appendMessage(session, { role: 'tool', content: output, toolCallId: toolCall.id, name: toolCall.name });
       yield { type: 'tool-result', toolCallId: toolCall.id, toolName: toolCall.name, ok: false, output };
-      return;
+      return null;
     }
 
-    // Apply user-edited content from the approval prompt when present.
-    let input = toolCall.input;
+    let input = materialized.input;
     if (result.edited !== undefined) {
-      if (toolCall.name === 'write') {
-        input = { ...input, content: result.edited };
-      } else if (toolCall.name === 'shell') {
-        input = { ...input, command: result.edited };
-      } else if (toolCall.name === 'edit') {
-        input = { ...input, newText: result.edited };
-      }
+      if (toolCall.name === 'write') input = { ...input, content: result.edited };
+      else if (toolCall.name === 'shell' || toolCall.name === 'pty') input = { ...input, command: result.edited };
+      else if (toolCall.name === 'edit') input = { ...input, newText: result.edited };
     }
 
-    const execResult = await registry.execute(toolCall.name, input, ctx);
-    store.appendMessage(session, {
-      role: 'tool',
-      content: execResult.output,
-      toolCallId: toolCall.id,
-      name: toolCall.name,
-    });
-    yield {
-      type: 'tool-result',
-      toolCallId: toolCall.id,
-      toolName: toolCall.name,
-      ok: execResult.ok,
-      output: execResult.output,
+    return { toolCall, input };
+  }
+
+  private settlePrepared(
+    session: Session,
+    toolCall: ToolCall,
+    input: Record<string, unknown>,
+  ): Promise<import('../tools/types.js').ToolResult> {
+    const ctx: ToolContext = {
+      cwd: session.cwd,
+      config: this.opts.config,
+      logger: this.logger,
+      signal: this.opts.signal,
     };
+    return this.opts.registry.settle(toolCall.name, input, ctx);
   }
 }
 

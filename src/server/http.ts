@@ -80,6 +80,52 @@ export async function startDaemonHttp(options: DaemonHttpOptions): Promise<Daemo
 
       if (!checkAuth(req, token)) return unauthorized(res);
 
+      if (req.method === 'GET' && url.pathname === '/sessions') {
+        const fromStore = runtime.store.list();
+        const listed = fromStore.map((entry) => {
+          const hub = hubs.get(entry.id);
+          return {
+            id: entry.id,
+            mode: entry.mode,
+            cwd: entry.cwd,
+            status: entry.status,
+            messages: entry.messages,
+            lastActivity: entry.lastActivity,
+            busy: hub?.busy ?? false,
+            attached: Boolean(hub),
+          };
+        });
+        // Include in-memory hubs that somehow lack an index entry.
+        for (const [id, hub] of hubs) {
+          if (listed.some((e) => e.id === id)) continue;
+          try {
+            const s = runtime.store.load(id);
+            listed.push({
+              id: s.id,
+              mode: s.mode,
+              cwd: s.cwd,
+              status: s.status,
+              messages: s.messages.length,
+              lastActivity: s.lastActivity,
+              busy: hub.busy,
+              attached: true,
+            });
+          } catch {
+            listed.push({
+              id,
+              mode: 'agent',
+              cwd: runtime.cwd,
+              status: 'active',
+              messages: 0,
+              lastActivity: new Date().toISOString(),
+              busy: hub.busy,
+              attached: true,
+            });
+          }
+        }
+        return json(res, 200, { sessions: listed });
+      }
+
       if (req.method === 'POST' && url.pathname === '/sessions') {
         const raw = await readBody(req);
         const body = createSessionBodySchema.parse(raw ? JSON.parse(raw) : {});

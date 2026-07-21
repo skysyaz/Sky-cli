@@ -6,6 +6,9 @@ export default defineConfig({
   entry: {
     'cli/main': 'src/cli/main.ts',
     index: 'src/index.ts',
+    'sdk/client': 'src/sdk/client.ts',
+    'protocol/api': 'src/protocol/api.ts',
+    'protocol/openapi': 'src/protocol/openapi.ts',
   },
   format: ['esm'],
   target: 'node20',
