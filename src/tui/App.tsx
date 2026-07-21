@@ -545,7 +545,12 @@ export function App(props: AppProps): React.ReactElement {
           buildProvider(providerName); // rebuild so token limits/pricing update
           pushLog('system', `Model → ${arg}`);
         } else {
-          pushLog('system', 'Usage: /model <name>');
+          const models = modelsForProvider(providerName, model);
+          pushLog(
+            'system',
+            `Current: ${providerName}:${model}\nModels (pick with /model <name>):\n` +
+              models.map((m) => `  ${m === model ? '❯ ' : '  '}${m}`).join('\n'),
+          );
         }
         break;
       case 'provider': {
