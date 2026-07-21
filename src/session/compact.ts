@@ -132,6 +132,28 @@ export function compactSessionMessages(messages: Message[], options: CompactOpti
   };
 }
 
+/**
+ * Drop orphan tool messages (no preceding assistant tool_calls) that break
+ * some providers after aggressive compaction.
+ */
+export function sanitizeToolTurns(messages: Message[]): Message[] {
+  const toolCallIds = new Set<string>();
+  const out: Message[] = [];
+  for (const m of messages) {
+    if (m.role === 'assistant' && m.toolCalls?.length) {
+      for (const c of m.toolCalls) toolCallIds.add(c.id);
+      out.push(m);
+      continue;
+    }
+    if (m.role === 'tool') {
+      if (m.toolCallId && toolCallIds.has(m.toolCallId)) out.push(m);
+      continue;
+    }
+    out.push(m);
+  }
+  return out;
+}
+
 /** Progressively more aggressive keep counts for overflow retries. */
 export function overflowKeepRecent(attempt: number): number {
   if (attempt <= 0) return 6;

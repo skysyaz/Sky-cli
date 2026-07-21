@@ -260,6 +260,10 @@ sky forge remove work
 Config (`forge.remotes`) is non-secret; tokens are stored as `forge:<id>` in
 secrets. Host matching uses the remote URL (HTTPS or `git@host:path`).
 
+To **list repositories on GitHub/Gitea**, ask the agent (e.g. “list my github
+repos”) — it uses the `forge` tool with your dashboard PAT. Local `git` only
+sees the current working tree.
+
 Or switch live:
 
 ```text

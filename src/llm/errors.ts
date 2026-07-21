@@ -2,13 +2,36 @@ import { ErrorCode, SkyError } from '../errors/index.js';
 
 /** Map a provider HTTP status (and message) onto the 5xxx error catalog (§B.5). */
 export function providerErrorFromStatus(status: number | undefined, detail: string, cause?: unknown): SkyError {
+  const lower = detail.toLowerCase();
+  // OpenCode / free-tier proxies often wrap upstream outages as HTTP 400.
+  const upstreamFlake =
+    lower.includes('upstream request failed') ||
+    lower.includes('upstream error') ||
+    lower.includes('provider (console)');
+
   switch (status) {
     case 429:
       return new SkyError(ErrorCode.ProviderRateLimited, {}, cause);
     case 503:
       return new SkyError(ErrorCode.ProviderUnavailable, {}, cause);
     case 400:
-      return new SkyError(ErrorCode.ProviderBadRequest, { detail }, cause);
+      if (upstreamFlake) {
+        return new SkyError(
+          ErrorCode.ProviderRequestFailed,
+          {
+            detail:
+              `${detail} — free/upstream model blip. Retry the message, /new for a clean session, or /provider free with another model.`,
+          },
+          cause,
+        );
+      }
+      return new SkyError(
+        ErrorCode.ProviderBadRequest,
+        {
+          detail: `${detail} — try /compact or /new if the session is huge; forge listing needs the \`forge\` tool (not shell).`,
+        },
+        cause,
+      );
     case 401:
       return new SkyError(ErrorCode.ProviderAuthFailed, {}, cause);
     case 403:

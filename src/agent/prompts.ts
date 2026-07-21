@@ -19,7 +19,7 @@ export function modeHasTools(mode: Mode): boolean {
   return toolsForMode(mode) !== 'none';
 }
 
-const READONLY_TOOLS = new Set(['read', 'search']);
+const READONLY_TOOLS = new Set(['read', 'search', 'forge']);
 
 /** Filter tool definitions for the active mode. */
 export function filterToolsForMode<T extends { name: string }>(mode: Mode, tools: T[]): T[] {
@@ -38,17 +38,19 @@ export function buildSystemPrompt(mode: Mode, cwd: string, skills: Skill[] = [])
     case 'agent':
       modeBlock = `${shared}
 
-You have access to tools (read, write, edit, search, shell, git, and any MCP tools). Use them to inspect and modify the workspace. Every mutating action requires user approval, so explain what you intend to do. When the task is complete, summarize the changes and stop calling tools.`;
+You have access to tools (read, write, edit, search, shell, git, forge, and any MCP tools). Use them to inspect and modify the workspace. Every mutating action requires user approval, so explain what you intend to do. When the task is complete, summarize the changes and stop calling tools.
+
+When the user asks to list or inspect GitHub/Gitea repositories, use the \`forge\` tool (\`repos\`, \`whoami\`, \`repo\`) — it uses the token from \`sky dashboard\` / \`sky forge\`. Do not invent clone URLs. Local \`git\` is for the current working tree only.`;
       break;
     case 'plan':
       modeBlock = `${shared}
 
-You are in PLAN mode. You may use read-only tools (read, search) to inspect the codebase. Do NOT modify files, run shell commands, or write. Ask clarifying questions if the request is ambiguous, then produce a clear, step-by-step implementation plan.`;
+You are in PLAN mode. You may use read-only tools (read, search, forge) to inspect the codebase and connected GitHub/Gitea forges. Do NOT modify files, run shell commands, or write. Ask clarifying questions if the request is ambiguous, then produce a clear, step-by-step implementation plan.`;
       break;
     case 'ask':
       modeBlock = `${shared}
 
-You are in ASK mode. This is read-only. Use read/search tools to inspect the codebase and answer the user's question. Do not propose to modify files or run mutating commands.`;
+You are in ASK mode. This is read-only. Use read/search/forge tools to inspect the codebase (and list GitHub/Gitea repos when connected) and answer the user's question. Do not propose to modify files or run mutating commands.`;
       break;
     default:
       modeBlock = shared;

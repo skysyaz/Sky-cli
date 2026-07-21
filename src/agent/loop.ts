@@ -9,6 +9,7 @@ import {
   overflowKeepRecent,
   estimateMessageTokens,
   contextBudget,
+  sanitizeToolTurns,
   type CompactReason,
 } from '../session/compact.js';
 import type { Provider, LlmMessage, StreamRequest } from '../llm/types.js';
@@ -238,8 +239,13 @@ export class AgentLoop {
 
       let messages: LlmMessage[];
       try {
+        const history = sanitizeToolTurns(session.messages as Message[]);
+        if (history.length !== session.messages.length) {
+          session.messages = history;
+          this.opts.store.save(session);
+        }
         messages = buildContext({
-          messages: [system, ...(session.messages as LlmMessage[])],
+          messages: [system, ...(history as LlmMessage[])],
           limits,
           safetyMargin,
           keepRecentTurns,
