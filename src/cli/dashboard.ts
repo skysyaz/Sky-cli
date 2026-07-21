@@ -280,6 +280,15 @@ async function api(path, opts = {}) {
   return data;
 }
 
+function esc(value) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 function toast(msg) {
   const el = document.getElementById('toast');
   el.textContent = msg;
@@ -301,9 +310,9 @@ function findForge(forges, type, preferredId) {
 }
 
 function connectedDesc(f) {
-  const who = f.username ? \`Connected as \${f.username}\` : 'Connected';
+  const who = f.username ? 'Connected as ' + esc(f.username) : 'Connected';
   const star = f.isDefault ? ' · default' : '';
-  return \`<span class="ok">\${who}</span> · \${f.baseUrl}\${star}\`;
+  return '<span class="ok">' + who + '</span> · ' + esc(f.baseUrl) + star;
 }
 
 function renderSourceControl(forges) {
@@ -342,24 +351,26 @@ function renderSourceControl(forges) {
       icon: f.type === 'github' ? ICONS.github : ICONS.gitea,
       connected: f.hasToken,
       forge: f,
-      idle: \`Connect \${f.type} at \${f.baseUrl}\`,
+      idle: 'Connect ' + esc(f.type) + ' at ' + esc(f.baseUrl),
     })),
   ];
 
   root.innerHTML = rows.map((r) => {
     const desc = r.connected && r.forge ? connectedDesc(r.forge) : r.idle;
+    const idAttr = esc(r.id);
+    const typeAttr = esc(r.type);
     const action = r.connected
-      ? \`<button type="button" class="btn" data-manage="\${r.id}">Manage <span class="chev">▾</span></button>
-         <div class="menu" data-menu="\${r.id}">
-           <button type="button" data-act="token" data-id="\${r.id}" data-type="\${r.type}">Update token</button>
-           <button type="button" data-act="default" data-id="\${r.id}">Set as default</button>
-           <button type="button" class="danger" data-act="disconnect" data-id="\${r.id}">Disconnect</button>
+      ? \`<button type="button" class="btn" data-manage="\${idAttr}">Manage <span class="chev">▾</span></button>
+         <div class="menu" data-menu="\${idAttr}">
+           <button type="button" data-act="token" data-id="\${idAttr}" data-type="\${typeAttr}">Update token</button>
+           <button type="button" data-act="default" data-id="\${idAttr}">Set as default</button>
+           <button type="button" class="danger" data-act="disconnect" data-id="\${idAttr}">Disconnect</button>
          </div>\`
-      : \`<button type="button" class="btn" data-connect="\${r.type}" data-id="\${r.id}">Connect <span class="ext">↗</span></button>\`;
+      : \`<button type="button" class="btn" data-connect="\${typeAttr}" data-id="\${idAttr}">Connect <span class="ext">↗</span></button>\`;
     return \`<div class="row">
       <div class="icon">\${r.icon}</div>
       <div class="meta">
-        <p class="name">\${r.title}</p>
+        <p class="name">\${esc(r.title)}</p>
         <p class="desc">\${desc}</p>
       </div>
       <div class="actions">\${action}</div>
@@ -421,21 +432,27 @@ function renderProviders(keys) {
   root.innerHTML = sorted.map((k) => {
     let desc = 'No API key configured.';
     if (k.status === 'keyless') desc = '<span class="ok">Keyless</span> — ready without a personal key.';
-    else if (k.status === 'ready') desc = \`<span class="ok">Connected</span> · \${k.source}\${k.masked ? ' ' + k.masked : ''}\`;
+    else if (k.status === 'ready') {
+      desc =
+        '<span class="ok">Connected</span> · ' +
+        esc(k.source) +
+        (k.masked ? ' ' + esc(k.masked) : '');
+    }
+    const prov = esc(k.provider);
     const action =
       k.status === 'ready' && k.source === 'secrets'
-        ? \`<button type="button" class="btn" data-manage-key="\${k.provider}">Manage <span class="chev">▾</span></button>
-           <div class="menu" data-menu-key="\${k.provider}">
-             <button type="button" data-key-act="set" data-provider="\${k.provider}">Update key</button>
-             <button type="button" class="danger" data-key-act="clear" data-provider="\${k.provider}">Disconnect</button>
+        ? \`<button type="button" class="btn" data-manage-key="\${prov}">Manage <span class="chev">▾</span></button>
+           <div class="menu" data-menu-key="\${prov}">
+             <button type="button" data-key-act="set" data-provider="\${prov}">Update key</button>
+             <button type="button" class="danger" data-key-act="clear" data-provider="\${prov}">Disconnect</button>
            </div>\`
         : k.status === 'keyless'
           ? \`<button type="button" class="btn" disabled style="opacity:.45;cursor:default">Ready</button>\`
-          : \`<button type="button" class="btn" data-key-act="set" data-provider="\${k.provider}">Connect <span class="ext">↗</span></button>\`;
+          : \`<button type="button" class="btn" data-key-act="set" data-provider="\${prov}">Connect <span class="ext">↗</span></button>\`;
     return \`<div class="row">
       <div class="icon">\${ICONS.key}</div>
       <div class="meta">
-        <p class="name">\${k.provider}</p>
+        <p class="name">\${prov}</p>
         <p class="desc">\${desc}</p>
       </div>
       <div class="actions">\${action}</div>
@@ -571,7 +588,12 @@ export async function startDashboard(options: DashboardOptions = {}): Promise<nu
   const server = createServer(async (req, res) => {
     try {
       const url = new URL(req.url ?? '/', 'http://127.0.0.1');
-      if (req.method !== 'GET' && req.method !== 'HEAD') {
+      const isApi = url.pathname.startsWith('/api/');
+      // All API routes (including GET /api/state) require the page token.
+      if (isApi && req.headers['x-sky-token'] !== token) {
+        return json(res, 401, { error: 'unauthorized' });
+      }
+      if (!isApi && req.method !== 'GET' && req.method !== 'HEAD') {
         if (req.headers['x-sky-token'] !== token) {
           return json(res, 401, { error: 'unauthorized' });
         }
@@ -616,6 +638,12 @@ export async function startDashboard(options: DashboardOptions = {}): Promise<nu
         };
         if (!body.id || !body.type || !body.baseUrl) {
           return json(res, 400, { error: 'id, type, baseUrl required' });
+        }
+        if (body.type !== 'github' && body.type !== 'gitea') {
+          return json(res, 400, { error: 'type must be github or gitea' });
+        }
+        if (!/^[a-zA-Z][a-zA-Z0-9_-]*$/.test(body.id)) {
+          return json(res, 400, { error: 'id must be alphanumeric (start with a letter)' });
         }
         const config = loadConfig({ cwd });
         config.forge.remotes[body.id] = {

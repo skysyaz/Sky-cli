@@ -83,8 +83,8 @@ export function App(props: AppProps): React.ReactElement {
   const [showCost, setShowCost] = useState(Boolean(config.tui.theme.layout.showCost));
   const [filesEdited, setFilesEdited] = useState(0);
   const [approval, setApproval] = useState<{ request: ApprovalPromptRequest; resolve: (a: ApprovalAnswer) => void } | null>(null);
-  /** Session-level auto-approve — `/yolo` toggles; seeded from CLI `--yolo`. */
-  const [yolo, setYolo] = useState(Boolean(props.yolo || props.force));
+  /** Session YOLO — `/yolo` toggles; seeded only from CLI `--yolo` (not `--force`). */
+  const [yolo, setYolo] = useState(Boolean(props.yolo));
   const yoloRef = useRef(yolo);
   yoloRef.current = yolo;
 
@@ -229,7 +229,8 @@ export function App(props: AppProps): React.ReactElement {
       audit: auditRef.current,
       prompter,
       logger: props.logger,
-      force: yoloRef.current || props.force,
+      // force skips prompts; yolo also bypasses tool predicates — keep distinct.
+      force: Boolean(props.force) || yoloRef.current,
       yolo: yoloRef.current,
     });
     const loop = new AgentLoop({

@@ -33,6 +33,14 @@ type Input = z.infer<typeof schema>;
 
 const READ_ACTIONS = new Set(['status', 'diff', 'log', 'branch', 'remote', 'fetch']);
 
+/** Strip credentials from URLs so PATs never land in tool output / session history. */
+export function redactSecrets(text: string): string {
+  return text
+    .replace(/:\/\/[^/\s]+@/g, '://***@')
+    .replace(/\b(ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9_]{20,}\b/g, '$1_***')
+    .replace(/\b(glpat-|gitea_)[A-Za-z0-9_]{10,}\b/g, '***');
+}
+
 /**
  * Resolve an authenticated HTTPS URL for a named remote when a forge + token
  * are configured. Returns null to use the normal remote name.
@@ -153,7 +161,8 @@ export const gitTool: Tool<Input> = {
           return { ok: true, output: 'Pulled.' };
         }
         case 'push': {
-          if (flags.includes('--force') || flags.includes('-f')) {
+          const allOpts = [...flags, ...args];
+          if (allOpts.includes('--force') || allOpts.includes('-f')) {
             if (!ctx.config.tools.git.allowForcePush) {
               return { ok: false, output: 'Force push denied by policy.', code: ErrorCode.GitForcePushDenied };
             }
@@ -173,7 +182,11 @@ export const gitTool: Tool<Input> = {
           return { ok: false, output: `Unsupported git action.`, code: ErrorCode.ToolInputInvalid, retryable: true };
       }
     } catch (error) {
-      return { ok: false, output: `git ${input.action} failed: ${(error as Error).message}`, code: ErrorCode.ToolUnexpected };
+      return {
+        ok: false,
+        output: redactSecrets(`git ${input.action} failed: ${(error as Error).message}`),
+        code: ErrorCode.ToolUnexpected,
+      };
     }
   },
 };

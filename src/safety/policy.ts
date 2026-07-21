@@ -99,12 +99,14 @@ export class Policy {
     if (tool === 'git') {
       const action = String(input.action ?? '');
       const flags = Array.isArray(input.flags) ? (input.flags as string[]) : [];
-      if (action === 'push' && flags.some((f) => f === '--force' || f === '-f')) {
+      const args = Array.isArray(input.args) ? (input.args as string[]) : [];
+      const forcePush = [...flags, ...args].some((f) => f === '--force' || f === '-f');
+      if (action === 'push' && forcePush) {
         if (!this.tools().git.allowForcePush) {
           return { decision: 'deny', reason: 'git force push denied by policy' };
         }
       }
-      if (this.tools().git.autoApproveReads && ['status', 'diff', 'log', 'branch'].includes(action)) {
+      if (this.tools().git.autoApproveReads && ['status', 'diff', 'log', 'branch', 'remote', 'fetch'].includes(action)) {
         return { decision: 'allow', reason: 'git read auto-approved' };
       }
       return { decision: 'prompt', reason: `git ${action} requires approval` };
