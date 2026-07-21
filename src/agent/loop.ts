@@ -20,6 +20,7 @@ import type { Provider, LlmMessage, StreamRequest } from '../llm/types.js';
 import { buildContext } from '../llm/context.js';
 import { estimateCost } from '../llm/cost.js';
 import { createProvider } from '../llm/registry.js';
+import { textDeltaPiece } from '../llm/text-delta.js';
 import type { ToolRegistry } from '../tools/registry.js';
 import type { ToolContext } from '../tools/types.js';
 import { PARALLEL_SAFE_TOOLS } from '../tools/types.js';
@@ -345,8 +346,9 @@ export class AgentLoop {
             if (this.opts.signal?.aborted) throw new SkyError(ErrorCode.AgentAborted, {});
             if (chunk.type === 'text-delta') {
               emitted = true;
-              assistantText += chunk.text;
-              yield { type: 'text-delta', text: chunk.text };
+              const { next, piece } = textDeltaPiece(assistantText, chunk.text);
+              assistantText = next;
+              if (piece) yield { type: 'text-delta', text: piece };
             } else if (chunk.type === 'tool-call') {
               emitted = true;
               toolCalls.push(chunk.toolCall);
