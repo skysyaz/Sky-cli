@@ -124,7 +124,7 @@ When stdin is a TTY, Sky opens an Ink TUI:
 | `/provider <name>` | Switch provider (palette lists all) |
 | `/key <api-key>` | Save key to `~/.sky/secrets.json` (mode `0600`) and reload |
 | `/key clear` | Remove the stored key for the current provider |
-| `/cost` | Token + estimated USD usage |
+| `/cost` | Session usage; `/cost on\|off\|toggle` for status-bar cost |
 | `/diff` | Files edited this session |
 | `/compact` | Trim older messages to reclaim context |
 | `/plugin …` | Marketplace / install / list / search |

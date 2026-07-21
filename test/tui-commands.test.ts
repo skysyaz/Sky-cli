@@ -56,6 +56,9 @@ describe('palette suggestions (§5.5)', () => {
   it('returns nothing for an unknown command with a space', () => {
     expect(getSuggestions('/nope ')).toEqual([]);
   });
+  it('offers on/off/toggle for /cost', () => {
+    expect(getSuggestions('/cost ').map((x) => x.value)).toEqual(['on', 'off', 'toggle']);
+  });
 });
 
 describe('modelsForProvider / modelTag', () => {

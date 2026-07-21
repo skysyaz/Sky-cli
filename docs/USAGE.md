@@ -144,7 +144,10 @@ Started automatically when your terminal is interactive (not `--json`).
 /provider anthropic
 /key sk-ant-...
 /key clear
-/cost
+/cost                            # show tokens + $ once
+/cost on                         # always show ~$cost in the status bar
+/cost off                        # hide status-bar cost
+/cost toggle
 /compact                         # drop old turns
 /plugin marketplace add owner/repo
 /plugin install name@marketplace
