@@ -56,7 +56,7 @@ function build(): Command {
     .option('-m, --model <model>', 'override the model for this run')
     .option(
       '-p, --provider <provider>',
-      'override the LLM provider (openai, anthropic, ollama, ollama-cloud, openrouter, zenmux, opencode, gemini, deepseek, groq, mock)',
+      'override the LLM provider (openai, anthropic, ollama, ollama-cloud, openrouter, zenmux, opencode, gemini, deepseek, groq, qwen-web, zai-web, kimi-web, custom, mock)',
     )
     .option('--yolo', 'auto-approve every tool call (CI only); implies --force')
     .option('--force', 'skip interactive confirmations but respect the denylist')
