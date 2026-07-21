@@ -129,4 +129,77 @@ describe('AgentLoop (§2.4.1)', () => {
     expect(result && (result as any).ok).toBe(false);
     expect((result as any).output).toContain('Denied by policy');
   });
+
+  it('rebuilds the provider adapter on fallback', async () => {
+    const { ErrorCode, SkyError } = await import('../src/errors/index.js');
+    const { defaultConfig } = await import('../src/config/index.js');
+
+    class NamedProvider {
+      readonly name: string;
+      private failsLeft: number;
+      seenModels: string[] = [];
+      constructor(name: string, failsLeft = 0) {
+        this.name = name;
+        this.failsLeft = failsLeft;
+      }
+      async *stream(request: { model: string }) {
+        this.seenModels.push(request.model);
+        if (this.failsLeft > 0) {
+          this.failsLeft--;
+          throw new SkyError(ErrorCode.ProviderUnavailable, {});
+        }
+        yield { type: 'text-delta' as const, text: `ok-from-${this.name}` };
+        yield {
+          type: 'done' as const,
+          usage: { inputTokens: 1, outputTokens: 1 },
+          finishReason: 'stop',
+        };
+      }
+      countTokens() {
+        return 1;
+      }
+      tokenLimits() {
+        return { contextWindow: 128_000, maxOutput: 4096 };
+      }
+    }
+
+    const primary = new NamedProvider('openai', 1);
+    const fallback = new NamedProvider('anthropic', 0);
+    const adapters: Record<string, NamedProvider> = {
+      openai: primary,
+      anthropic: fallback,
+    };
+
+    const config = defaultConfig();
+    config.providers.openai = {
+      ...(config.providers.openai ?? {}),
+      fallback: { provider: 'anthropic', model: 'claude-sonnet-4-5', triggerAfter: 1 },
+    };
+
+    const store = new SessionStore({ dir: join(dir, 'sessions'), indexPath: join(dir, 'sessions.index') });
+    const session = store.create({ mode: 'ask', cwd: dir, provider: 'openai', model: 'gpt-4o' });
+    const policy = new Policy(config, session.sessionAllowlist);
+    const loop = new AgentLoop({
+      provider: primary as any,
+      registry: new ToolRegistry(),
+      approver: new Approver({
+        policy,
+        audit: new AuditLog({ path: join(dir, 'audit.log') }),
+        yolo: true,
+      }),
+      policy,
+      session,
+      store,
+      config,
+      logger: nullLogger,
+      createProvider: (name) => adapters[name] as any,
+    });
+
+    const events = await collect(loop.run('ping'));
+    const text = events.filter((e) => e.type === 'text-delta').map((e) => (e as any).text).join('');
+    expect(text).toContain('ok-from-anthropic');
+    expect(session.provider).toBe('anthropic');
+    expect(session.model).toBe('claude-sonnet-4-5');
+    expect(fallback.seenModels).toContain('claude-sonnet-4-5');
+  });
 });

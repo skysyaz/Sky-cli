@@ -111,7 +111,9 @@ export const gitTool: Tool<Input> = {
           return { ok: true, output: diff || '(no changes)' };
         }
         case 'log': {
-          const log = await git.log(['-n', args[0] ?? '10']);
+          const parsed = Number.parseInt(String(args[0] ?? '10'), 10);
+          const count = Number.isFinite(parsed) && parsed > 0 ? String(parsed) : '10';
+          const log = await git.log(['-n', count]);
           return { ok: true, output: log.all.map((c) => `${c.hash.slice(0, 8)} ${c.message}`).join('\n') };
         }
         case 'branch': {

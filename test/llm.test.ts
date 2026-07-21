@@ -116,6 +116,14 @@ describe('cost estimation (§8.9)', () => {
   it('returns zero for an unknown model', () => {
     expect(estimateCost('mystery', { inputTokens: 100, outputTokens: 100 })).toBe(0);
   });
+  it('prices palette models and prefixed ids', () => {
+    expect(estimateCost('claude-sonnet-4-5', { inputTokens: 1_000_000, outputTokens: 0 })).toBeGreaterThan(0);
+    expect(estimateCost('gpt-4.1', { inputTokens: 1_000_000, outputTokens: 0 })).toBeGreaterThan(0);
+    expect(estimateCost('gemini-2.0-flash', { inputTokens: 1_000_000, outputTokens: 0 })).toBeGreaterThan(0);
+    expect(estimateCost('deepseek-chat', { inputTokens: 1_000_000, outputTokens: 0 })).toBeGreaterThan(0);
+    expect(estimateCost('openai/gpt-4o', { inputTokens: 1_000_000, outputTokens: 0 })).toBeCloseTo(2.5);
+    expect(estimateCost('claude-3-5-sonnet-20241022', { inputTokens: 1_000_000, outputTokens: 0 })).toBeCloseTo(3.0);
+  });
 });
 
 describe('createProvider web + custom', () => {

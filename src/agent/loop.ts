@@ -18,6 +18,7 @@ import {
 import type { Provider, LlmMessage, StreamRequest } from '../llm/types.js';
 import { buildContext } from '../llm/context.js';
 import { estimateCost } from '../llm/cost.js';
+import { createProvider } from '../llm/registry.js';
 import type { ToolRegistry } from '../tools/registry.js';
 import type { ToolContext } from '../tools/types.js';
 import type { Approver } from '../safety/approver.js';
@@ -40,6 +41,11 @@ export interface AgentLoopOptions {
   maxIterations?: number;
   /** Skills injected into the system prompt. */
   skills?: Skill[];
+  /**
+   * Build a provider adapter by name (used on fallback). Defaults to
+   * {@link createProvider}. Inject in tests to assert adapter rebuild.
+   */
+  createProvider?: (providerName: string) => Provider;
 }
 
 /**
@@ -224,8 +230,10 @@ export class AgentLoop {
   private async *streamTurn(
     session: Session,
   ): AsyncGenerator<AgentEvent, { assistantText: string; toolCalls: ToolCall[]; reason: string }> {
-    const { provider, registry, config } = this.opts;
-    const limits = provider.tokenLimits(session.model);
+    const { registry, config } = this.opts;
+    // Mutable — rebuilt when provider fallback switches adapters.
+    let provider = this.opts.provider;
+    let limits = provider.tokenLimits(session.model);
 
     // Proactive compact before each provider call (also mid-turn after tools).
     const proactive = this.applyAutoCompact(session);
@@ -336,6 +344,15 @@ export class AgentLoop {
               session.provider = fallback.provider;
               session.model = fallback.model;
               request.model = fallback.model;
+              // Rebuild the adapter — model name alone is not enough across providers.
+              const factory =
+                this.opts.createProvider ??
+                ((name: string) =>
+                  createProvider({ config, provider: name, logger: this.logger }));
+              provider = factory(fallback.provider);
+              this.opts.provider = provider;
+              limits = provider.tokenLimits(session.model);
+              request.maxOutputTokens = limits.maxOutput;
             }
             continue;
           }

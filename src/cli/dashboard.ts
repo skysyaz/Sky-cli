@@ -642,10 +642,14 @@ export async function startDashboard(options: DashboardOptions = {}): Promise<nu
         if (body.type !== 'github' && body.type !== 'gitea') {
           return json(res, 400, { error: 'type must be github or gitea' });
         }
+        if (body.id === 'default') {
+          return json(res, 400, { error: 'id "default" is reserved; use POST /api/forge/default to set the default forge' });
+        }
         if (!/^[a-zA-Z][a-zA-Z0-9_-]*$/.test(body.id)) {
           return json(res, 400, { error: 'id must be alphanumeric (start with a letter)' });
         }
-        const config = loadConfig({ cwd });
+        // Global config only — never persist project .skyrc into ~/.sky/config.json.
+        const config = loadConfig({ skipProject: true });
         config.forge.remotes[body.id] = {
           type: body.type,
           baseUrl: normalizeForgeBaseUrl(body.baseUrl),
@@ -660,16 +664,25 @@ export async function startDashboard(options: DashboardOptions = {}): Promise<nu
       if (req.method === 'POST' && url.pathname === '/api/forge/default') {
         const body = JSON.parse(await readBody(req)) as { id?: string };
         if (!body.id) return json(res, 400, { error: 'id required' });
-        const config = loadConfig({ cwd });
+        const config = loadConfig({ skipProject: true });
         if (!config.forge.remotes[body.id]) return json(res, 404, { error: 'unknown forge' });
         config.forge.default = body.id;
         writeConfig(config);
         return json(res, 200, { ok: true });
       }
 
+      // Clear the default forge pointer (does not delete a remote named "default").
+      if (req.method === 'DELETE' && url.pathname === '/api/forge/default') {
+        const config = loadConfig({ skipProject: true });
+        config.forge.default = undefined;
+        writeConfig(config);
+        return json(res, 200, { ok: true });
+      }
+
       if (req.method === 'DELETE' && url.pathname.startsWith('/api/forge/')) {
         const id = decodeURIComponent(url.pathname.slice('/api/forge/'.length));
-        const config = loadConfig({ cwd });
+        if (!id || id.includes('/')) return json(res, 400, { error: 'invalid forge id' });
+        const config = loadConfig({ skipProject: true });
         delete config.forge.remotes[id];
         if (config.forge.default === id) config.forge.default = undefined;
         writeConfig(config);
