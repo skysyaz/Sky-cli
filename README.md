@@ -155,15 +155,18 @@ sky -s abc12 "continue…"    # attach to a session on start
 | `ollama-cloud` | `OLLAMA_API_KEY` | Hosted Ollama |
 | `openrouter` | `OPENROUTER_API_KEY` | |
 | `zenmux` | `ZENMUX_API_KEY` | |
-| `opencode` | _(optional)_ `OPENCODE_API_KEY` | Free models work with no key (guest). Paid Zen models need a key. Endpoint: `https://opencode.ai/zen/v1` |
+| `opencode` | _(optional)_ `OPENCODE_API_KEY` | **Keyless free models** (guest token). Paid Zen models need a key. |
 | `gemini` | `GEMINI_API_KEY` | Google OpenAI-compat endpoint |
 | `deepseek` | `DEEPSEEK_API_KEY` | |
 | `groq` | `GROQ_API_KEY` | |
-| `qwen-web` | `DASHSCOPE_API_KEY` | Qwen via DashScope compatible-mode (free-tier key from Model Studio) |
-| `zai-web` | `ZAI_API_KEY` | Z.AI / GLM (`https://api.z.ai/api/paas/v4`) |
-| `kimi-web` | `MOONSHOT_API_KEY` | Moonshot Kimi (`https://api.moonshot.ai/v1`) |
+| `qwen-web` | `DASHSCOPE_API_KEY` | Official DashScope API — **needs a free-tier key** (not chat.qwen.ai cookies) |
+| `zai-web` | `ZAI_API_KEY` | Official Z.AI API — **needs a free-tier key** (not chat.z.ai cookies) |
+| `kimi-web` | `MOONSHOT_API_KEY` | Official Moonshot API — **needs a free-tier key** (not kimi.com cookies) |
 | `custom` | `/key` or `SKY_CUSTOM_API_KEY` | Your OpenAI-compatible `providers.custom.baseUrl` |
 | `mock` | _(none)_ | Offline / tests |
+
+**Keyless free?** Use `/provider free` (alias for `opencode`) — no API key.
+`qwen-web` / `zai-web` / `kimi-web` are **not** browser logins; paste a free key with `/key`.
 
 ```bash
 sky -p anthropic -m claude-3-5-sonnet "…"

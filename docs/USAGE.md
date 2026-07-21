@@ -179,21 +179,29 @@ public guest token automatically. For **paid** Zen models, set
 `OPENCODE_API_KEY` or run `/key <value>` after signing in at
 [opencode.ai/auth](https://opencode.ai/auth).
 
-**Qwen / Z.AI / Kimi (“-web” providers)** use each vendor’s official
-OpenAI-compatible API (not browser-cookie scrapers). Create a free-tier key on
-their site, then:
+**Qwen / Z.AI / Kimi (`*-web`)** are official OpenAI-compatible APIs. They need a
+**free-tier API key** from the vendor — they do **not** log into the website chat
+(no cookies). Qwen’s own browser OAuth free tier was discontinued in 2026.
 
 ```text
 /provider qwen-web
+# → shows signup URL if no key
 /key sk-…
 /model qwen-plus
 ```
 
-| Provider | Key env | Default endpoint |
+| Provider | Key env | Signup |
 | --- | --- | --- |
-| `qwen-web` | `DASHSCOPE_API_KEY` | `https://dashscope-intl.aliyuncs.com/compatible-mode/v1` |
-| `zai-web` | `ZAI_API_KEY` | `https://api.z.ai/api/paas/v4` |
-| `kimi-web` | `MOONSHOT_API_KEY` | `https://api.moonshot.ai/v1` |
+| `qwen-web` | `DASHSCOPE_API_KEY` | https://modelstudio.console.alibabacloud.com/ |
+| `zai-web` | `ZAI_API_KEY` | https://z.ai/ |
+| `kimi-web` | `MOONSHOT_API_KEY` | https://platform.moonshot.ai/ |
+
+**Truly keyless free models** (guest token):
+
+```text
+/provider free          # alias for opencode
+/model deepseek-v4-flash-free
+```
 
 Or switch live:
 

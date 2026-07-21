@@ -93,7 +93,8 @@ export function providersForPalette(
     .filter(([, cfg]) => Boolean(cfg?.baseUrl))
     .map(([name]) => name)
     .filter((name) => !PROVIDER_NAMES.includes(name));
-  return [...PROVIDER_NAMES, ...extra.sort()];
+  // `free` is a friendly alias for keyless OpenCode Zen — shown in the palette.
+  return ['free', ...PROVIDER_NAMES, ...extra.sort()];
 }
 
 export const SLASH_COMMANDS: SlashCommand[] = [
@@ -240,7 +241,7 @@ export function getSuggestions(
   }
 
   if (command.name === 'provider') {
-    const args = options.providerSuggestions ?? command.args;
+    const args = options.providerSuggestions ?? providersForPalette();
     return args
       .filter((a) => matches(a, parsed.arg))
       .map((a) => ({ kind: 'arg' as const, label: a, description: providerTag(a), value: a }));
@@ -253,9 +254,11 @@ export function getSuggestions(
 
 /** Short tag for a provider in the `/provider` palette. */
 export function providerTag(name: string): string {
-  if (name === 'opencode') return 'free guest';
+  if (name === 'free') return 'keyless → opencode';
+  // Lazy import avoided — keep tags local + aligned with provider-auth.ts
+  if (name === 'opencode') return 'keyless free';
   if (name === 'custom') return 'your baseUrl';
-  if (name.endsWith('-web')) return 'free-tier API';
+  if (name === 'qwen-web' || name === 'zai-web' || name === 'kimi-web') return 'needs free key';
   if (name === 'ollama') return 'local';
   if (name === 'mock') return 'offline';
   return '';

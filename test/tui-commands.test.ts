@@ -67,7 +67,12 @@ describe('palette suggestions (§5.5)', () => {
   });
   it('lists qwen-web, zai-web, kimi-web, and custom in /provider', () => {
     const values = getSuggestions('/provider ').map((x) => x.value);
-    expect(values).toEqual(expect.arrayContaining(['qwen-web', 'zai-web', 'kimi-web', 'custom']));
+    expect(values).toEqual(expect.arrayContaining(['qwen-web', 'zai-web', 'kimi-web', 'custom', 'free']));
+    expect(values.find((v) => v === 'qwen-web')).toBeTruthy();
+    const qwen = getSuggestions('/provider qwen').find((x) => x.value === 'qwen-web');
+    expect(qwen?.description).toBe('needs free key');
+    const free = getSuggestions('/provider ').find((x) => x.value === 'free');
+    expect(free?.description).toBe('keyless → opencode');
   });
   it('merges configured custom providers into the palette', async () => {
     const { providersForPalette } = await import('../src/tui/commands.js');

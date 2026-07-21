@@ -11,7 +11,7 @@ import { AuditLog } from '../safety/audit.js';
 import { Approver, type Prompter, type ApprovalAnswer, type ApprovalPromptRequest } from '../safety/approver.js';
 import { AgentLoop } from '../agent/loop.js';
 import { SkyError } from '../errors/index.js';
-import { writeConfig, writeSecret, clearSecret } from '../config/index.js';
+import { writeConfig, writeSecret, clearSecret, providerAuthSetupCard, hasApiKey } from '../config/index.js';
 import { PluginManager, runPluginCommand, applyCommandArgs, type LoadedPlugin, type PluginCommand } from '../plugins/index.js';
 import type { Skill } from '../skills/index.js';
 import {
@@ -127,7 +127,13 @@ export function App(props: AppProps): React.ReactElement {
     } catch (error) {
       setProvider(null);
       const skyError = SkyError.from(error);
-      pushLog('error', `${skyError.toUserMessage()} — set a key with /key <value> or switch with /provider.`);
+      // Rich setup card for *-web / custom — avoid a cryptic one-liner loop.
+      if (skyError.code === 'SKY-E-1002') {
+        pushLog('error', skyError.toUserMessage());
+        pushLog('system', providerAuthSetupCard(name));
+      } else {
+        pushLog('error', `${skyError.toUserMessage()} — set a key with /key <value> or switch with /provider.`);
+      }
       return null;
     }
   }
@@ -256,36 +262,31 @@ export function App(props: AppProps): React.ReactElement {
         break;
       case 'provider': {
         const available = providersForPalette(config.providers);
-        if (arg && available.includes(arg)) {
-          if (arg === 'custom' && !config.providers.custom?.baseUrl) {
-            pushLog(
-              'system',
-              [
-                'Provider "custom" needs a base URL first:',
-                '  sky config set providers.custom.baseUrl https://llm.example.com/v1',
-                '  sky config set providers.custom.defaultModel my-model',
-                '  /provider custom',
-                '  /key <api-key>',
-                'Or add any name: sky config set providers.myllm.baseUrl https://…/v1',
-              ].join('\n'),
-            );
+        // `/provider free` → keyless OpenCode Zen free models.
+        const target = arg === 'free' ? 'opencode' : arg;
+        if (target && available.includes(target)) {
+          if (target === 'custom' && !config.providers.custom?.baseUrl) {
+            pushLog('system', providerAuthSetupCard('custom'));
             break;
           }
-          session.provider = arg;
-          config.defaultProvider = arg;
-          const providerDefaultModel = config.providers[arg]?.defaultModel;
+          session.provider = target;
+          config.defaultProvider = target;
+          const providerDefaultModel = config.providers[target]?.defaultModel;
           if (providerDefaultModel) {
             session.model = providerDefaultModel;
             setModel(providerDefaultModel);
-          } else if (arg === 'qwen-web') {
+          } else if (target === 'qwen-web') {
             session.model = 'qwen-plus';
             setModel('qwen-plus');
-          } else if (arg === 'zai-web') {
+          } else if (target === 'zai-web') {
             session.model = 'glm-4.5-flash';
             setModel('glm-4.5-flash');
-          } else if (arg === 'kimi-web') {
+          } else if (target === 'kimi-web') {
             session.model = 'kimi-k2.5';
             setModel('kimi-k2.5');
+          } else if (target === 'opencode') {
+            session.model = 'deepseek-v4-flash-free';
+            setModel('deepseek-v4-flash-free');
           }
           store.save(session);
           try {
@@ -293,17 +294,21 @@ export function App(props: AppProps): React.ReactElement {
           } catch (error) {
             pushLog('error', `Could not persist provider: ${(error as Error).message}`);
           }
-          const built = buildProvider(arg);
-          pushLog(
-            'system',
-            built
-              ? `Provider → ${arg} (ready)`
-              : `Provider → ${arg} — set a key with /key <value>`,
-          );
+          const built = buildProvider(target);
+          if (built) {
+            pushLog('system', `Provider → ${target} (ready)`);
+          } else if (!hasApiKey(target, config.providers[target])) {
+            // buildProvider already printed the setup card for SKY-E-1002
+            pushLog('system', `Provider → ${target} (waiting for /key)`);
+          }
         } else {
           pushLog(
             'system',
-            `Current provider: ${session.provider}. Usage: /provider <name>\nAvailable: ${available.join(', ')}`,
+            [
+              `Current provider: ${session.provider}.`,
+              'Usage: /provider <name>   or   /provider free  (keyless OpenCode)',
+              `Available: ${available.join(', ')}`,
+            ].join('\n'),
           );
         }
         break;

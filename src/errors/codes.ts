@@ -103,7 +103,11 @@ export const ERROR_CATALOG: Record<ErrorCode, ErrorMeta> = {
   // 1xxx
   [ErrorCode.ConfigNotFound]: { message: 'Config file not found. Run `sky init` to create one.', retryable: false, exitCode: 64 },
   [ErrorCode.ConfigParseFailed]: { message: 'Config file failed to parse: {detail}', retryable: false, exitCode: 64 },
-  [ErrorCode.NoApiKey]: { message: 'No API key configured for provider {name}.', retryable: false, exitCode: 64 },
+  [ErrorCode.NoApiKey]: {
+    message: 'No API key configured for provider {name}.{hint}',
+    retryable: false,
+    exitCode: 64,
+  },
   [ErrorCode.ConfigValidationFailed]: { message: 'Config schema validation failed: {fields}', retryable: false, exitCode: 64 },
   [ErrorCode.UnknownProvider]: { message: 'Unknown provider: {name}{hint}', retryable: false, exitCode: 64 },
   [ErrorCode.UnknownModel]: { message: 'Unknown model: {name} for provider {provider}', retryable: false, exitCode: 64 },
