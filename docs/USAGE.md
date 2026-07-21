@@ -196,12 +196,26 @@ public guest token automatically. For **paid** Zen models, set
 | `zai-web` | `ZAI_API_KEY` | https://z.ai/ |
 | `kimi-web` | `MOONSHOT_API_KEY` | https://platform.moonshot.ai/ |
 
-**Truly keyless free models** (guest token):
+### API keys dashboard
 
 ```text
-/provider free          # alias for opencode
-/model deepseek-v4-flash-free
+/keys                         # list every provider · which have keys · active
+/keys set qwen-web sk-…       # save a key without switching first
+/keys clear qwen-web
+/keys use free                # switch to keyless OpenCode
 ```
+
+Same from the shell (lightweight — no web UI):
+
+```bash
+sky keys
+sky keys set openai sk-…
+sky keys clear openai
+```
+
+Keys live in `~/.sky/secrets.json` (mode `0600`). If you open Sky on a
+provider with no key (e.g. leftover `qwen-web`), it auto-switches to
+**opencode** so you can chat immediately.
 
 Or switch live:
 

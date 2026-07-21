@@ -124,6 +124,8 @@ When stdin is a TTY, Sky opens an Ink TUI:
 | `/provider <name>` | Switch provider (palette lists all) |
 | `/key <api-key>` | Save key to `~/.sky/secrets.json` (mode `0600`) and reload |
 | `/key clear` | Remove the stored key for the current provider |
+| `/keys` | API key dashboard — list / set / clear / use |
+| `/provider free` | Keyless OpenCode free models |
 | `/cost` | Session usage; `/cost on\|off\|toggle` for status-bar cost |
 | `/diff` | Files edited this session |
 | `/compact` | Trim older messages to reclaim context |
@@ -165,8 +167,9 @@ sky -s abc12 "continue…"    # attach to a session on start
 | `custom` | `/key` or `SKY_CUSTOM_API_KEY` | Your OpenAI-compatible `providers.custom.baseUrl` |
 | `mock` | _(none)_ | Offline / tests |
 
-**Keyless free?** Use `/provider free` (alias for `opencode`) — no API key.
-`qwen-web` / `zai-web` / `kimi-web` are **not** browser logins; paste a free key with `/key`.
+**Keyless free?** Use `/provider free` or `/keys use free` — no API key.
+Manage all keys in one place with `/keys` (or `sky keys`).
+`qwen-web` / `zai-web` / `kimi-web` need a free-tier API key (not website cookies).
 
 ```bash
 sky -p anthropic -m claude-3-5-sonnet "…"
