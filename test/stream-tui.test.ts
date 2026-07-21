@@ -1,6 +1,10 @@
 import { describe, it, expect } from 'vitest';
 import { applyTextDelta, textDeltaPiece } from '../src/llm/text-delta.js';
-import { supportsLiveStreamRewrite } from '../src/tui/stream.js';
+import {
+  supportsLiveStreamRewrite,
+  preferSimpleTui,
+  isTermuxLike,
+} from '../src/tui/stream.js';
 
 describe('applyTextDelta', () => {
   it('appends true deltas', () => {
@@ -20,8 +24,22 @@ describe('applyTextDelta', () => {
   });
 });
 
-describe('supportsLiveStreamRewrite', () => {
-  it('disables live stream on Termux', () => {
+describe('Termux UI mode', () => {
+  it('detects Termux via PREFIX / HOME / filesystem hints', () => {
+    expect(isTermuxLike({ PREFIX: '/data/data/com.termux/files/usr' })).toBe(true);
+    expect(isTermuxLike({ HOME: '/data/data/com.termux/files/home' })).toBe(true);
+    expect(isTermuxLike({ TERMUX_VERSION: '0.118' })).toBe(true);
+    expect(isTermuxLike({})).toBe(false);
+  });
+
+  it('prefers simple TUI on Termux unless SKY_TUI=ink', () => {
+    expect(preferSimpleTui({ TERMUX_VERSION: '1' })).toBe(true);
+    expect(preferSimpleTui({ TERMUX_VERSION: '1', SKY_TUI: 'ink' })).toBe(false);
+    expect(preferSimpleTui({ SKY_TUI: 'readline' })).toBe(true);
+    expect(preferSimpleTui({})).toBe(false);
+  });
+
+  it('disables live stream rewrite on Termux', () => {
     expect(supportsLiveStreamRewrite({ TERMUX_VERSION: '0.118' }, { isTTY: true })).toBe(false);
     expect(supportsLiveStreamRewrite({ ANDROID_ROOT: '/system' }, { isTTY: true })).toBe(false);
   });
