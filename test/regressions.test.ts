@@ -183,6 +183,63 @@ Always write tests.
   });
 });
 
+describe('session allowlist pattern for root-level files', () => {
+  it('derives a pattern that actually matches a cwd-root file', () => {
+    const entry = Policy.deriveAllowlistPattern('write', { path: 'README.md' });
+    // The "always" choice must auto-approve later calls to the same file.
+    const policy = new Policy(defaultConfig(), [entry]);
+    const decision = policy.classify({
+      tool: 'write',
+      input: { path: 'README.md' },
+      requiresApproval: true,
+    });
+    expect(decision.decision).toBe('allow');
+  });
+
+  it('keeps deriving a directory-scoped pattern for nested files', () => {
+    expect(Policy.deriveAllowlistPattern('write', { path: 'src/a.ts' })).toEqual({
+      tool: 'write',
+      pattern: 'src/**/*.ts',
+    });
+  });
+});
+
+describe('secret denylist covers subdirectories', () => {
+  it('denies reading secret files nested below the cwd root', () => {
+    const p = new Policy(defaultConfig());
+    for (const path of ['packages/app/.env', 'config/credentials.json', 'certs/server.pem', 'certs/server.key']) {
+      expect(p.classify({ tool: 'read', input: { path }, requiresApproval: false }).decision).toBe('deny');
+    }
+  });
+
+  it('still denies root-level secret files', () => {
+    const p = new Policy(defaultConfig());
+    expect(p.classify({ tool: 'read', input: { path: '.env' }, requiresApproval: false }).decision).toBe('deny');
+  });
+});
+
+describe('edit tool occurrence reporting', () => {
+  let dir: string;
+  const registry = new ToolRegistry();
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), 'sky-edit-count-'));
+  });
+  afterEach(() => rmSync(dir, { recursive: true, force: true }));
+
+  it('reports the number actually replaced, not the total matched', async () => {
+    writeFileSync(join(dir, 'f.txt'), 'x x x x');
+    const ctx: ToolContext = { cwd: dir, config: defaultConfig(), logger: nullLogger };
+    const result = await registry.execute(
+      'edit',
+      { path: 'f.txt', oldText: 'x', newText: 'y', occurrences: 2 },
+      ctx,
+    );
+    expect(result.ok).toBe(true);
+    expect(result.output).toContain('2 occurrences');
+    expect(readFileSync(join(dir, 'f.txt'), 'utf8')).toBe('y y x x');
+  });
+});
+
 describe('approver edit answer', () => {
   it('does not grant on bare edit answer', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'sky-edit-'));

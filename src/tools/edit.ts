@@ -24,10 +24,10 @@ function countOccurrences(haystack: string, needle: string): number {
   return count;
 }
 
-function applyEdit(content: string, input: Input): { result: string; count: number } {
+function applyEdit(content: string, input: Input): { result: string; count: number; replaced: number } {
   const count = countOccurrences(content, input.oldText);
   if (input.occurrences === 'all') {
-    return { result: content.split(input.oldText).join(input.newText), count };
+    return { result: content.split(input.oldText).join(input.newText), count, replaced: count };
   }
   const limit = typeof input.occurrences === 'number' ? input.occurrences : 1;
   let replaced = 0;
@@ -40,7 +40,7 @@ function applyEdit(content: string, input: Input): { result: string; count: numb
     searchFrom = idx + input.newText.length;
     replaced++;
   }
-  return { result, count };
+  return { result, count, replaced };
 }
 
 /**
@@ -108,8 +108,12 @@ export const editTool: Tool<Input> = {
         retryable: true,
       };
     }
-    const { result } = applyEdit(content, input);
+    const { result, replaced } = applyEdit(content, input);
     writeFileSync(abs, result, 'utf8');
-    return { ok: true, output: `Edited ${input.path} (${count} occurrence${count === 1 ? '' : 's'}).`, data: { count } };
+    return {
+      ok: true,
+      output: `Edited ${input.path} (${replaced} occurrence${replaced === 1 ? '' : 's'}).`,
+      data: { count, replaced },
+    };
   },
 };
