@@ -56,6 +56,12 @@ describe('palette suggestions (§5.5)', () => {
   it('returns nothing for an unknown command with a space', () => {
     expect(getSuggestions('/nope ')).toEqual([]);
   });
+  it('filters plugin commands as you type a bare plugin name', () => {
+    const s = getSuggestions('/ponytail', {
+      extraCommands: [{ name: 'ponytail:create', description: 'Create a worktree' }],
+    });
+    expect(s.map((x) => x.value)).toEqual(['ponytail:create']);
+  });
   it('offers on/off/toggle for /cost', () => {
     expect(getSuggestions('/cost ').map((x) => x.value)).toEqual(['on', 'off', 'toggle']);
   });

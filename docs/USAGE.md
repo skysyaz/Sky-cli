@@ -214,7 +214,23 @@ sky plugin uninstall myplugin
 /plugin search keyword
 ```
 
-After install, new slash commands appear immediately in the palette.
+After install, plugin slash commands appear in the palette.
+
+Sky loads both Claude-style forms:
+- `commands/*.md` → `/plugin:name` (and short `/name` when safe)
+- `commands/*.toml` → same (e.g. ponytail’s `/ponytail`, `/ponytail-review`)
+
+Examples after installing ponytail:
+
+```text
+/ponytail              # activate full lazy mode (or /ponytail lite|ultra|off)
+/ponytail-review
+/ponytail-help
+/ponytail:ponytail     # namespaced form also works
+```
+
+If you type a bare plugin name that only has namespaced children, Sky lists
+those commands instead of erroring.
 
 ---
 

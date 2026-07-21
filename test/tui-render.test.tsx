@@ -247,6 +247,46 @@ describe('Ink TUI', () => {
     unmount();
   });
 
+  it('lists plugin commands when a bare plugin name is submitted', async () => {
+    const plugins: LoadedPlugin[] = [
+      { name: 'ponytail', commands: [{ name: 'ponytail:create', description: 'Create a worktree', body: 'do it' }], mcpServers: [] },
+    ];
+    const { stdin, lastFrame, unmount } = mount(plugins);
+    await delay();
+    stdin.write('/ponytail');
+    await delay();
+    stdin.write('\r');
+    await delay(80);
+    const frame = strip(lastFrame() ?? '');
+    expect(frame).toContain('Plugin commands for "ponytail"');
+    expect(frame).toContain('/ponytail:create');
+    expect(frame).not.toContain('Unknown command');
+    unmount();
+  });
+
+  it('runs short Claude-style plugin commands like /ponytail', async () => {
+    const plugins: LoadedPlugin[] = [
+      {
+        name: 'ponytail',
+        commands: [
+          { name: 'ponytail:ponytail', description: 'Lazy mode', body: 'Switch to ponytail {{args}} mode.' },
+          { name: 'ponytail', description: 'Lazy mode', body: 'Switch to ponytail {{args}} mode.' },
+        ],
+        mcpServers: [],
+      },
+    ];
+    const { stdin, lastFrame, unmount } = mount(plugins);
+    await delay();
+    stdin.write('/ponytail ultra');
+    await delay();
+    stdin.write('\r');
+    await delay(100);
+    const frame = strip(lastFrame() ?? '');
+    expect(frame).toContain('Running plugin command /ponytail ultra');
+    expect(frame).toContain('Switch to ponytail ultra mode.');
+    unmount();
+  });
+
   it('runs `/plugin marketplace add` then `/plugin install` from the TUI', async () => {
     // A fixture marketplace on disk (plain dir → copy path, no network).
     const fixture = join(dir, 'ponytail-src');
