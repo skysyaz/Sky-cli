@@ -1,6 +1,6 @@
 {
   "name": "@sky/cli",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Sky — a Node.js/TypeScript command-line AI agent with an interactive TUI, multi-provider LLM support, and production-grade safety workflows.",
   "type": "module",
   "license": "MIT",

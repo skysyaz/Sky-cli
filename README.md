@@ -11,8 +11,9 @@ it to.
 
 - **Local-first & user-sovereign** — your code stays on your machine.
 - **Consent by default** — every file write, shell command, and push requires approval.
-- **Multi-provider** — OpenAI, Anthropic, Ollama (local), Ollama Cloud, OpenRouter, and ZenMux behind one interface.
+- **Multi-provider** — OpenAI, Anthropic, Ollama (local), Ollama Cloud, OpenRouter, ZenMux, OpenCode, Gemini, DeepSeek, Groq, plus any OpenAI-compatible `baseUrl`.
 - **Auditable** — every approval decision is written to an append-only audit log.
+- **Extensible** — plugins (Claude marketplace format), live MCP tool servers, and `SKILL.md` skills.
 - **Modular to the bone** — typed modules with enforced boundaries (see the [spec](./Sky_CLI_Agent_Technical_Specification.pdf)).
 
 ## Install
@@ -59,11 +60,15 @@ node dist/cli/main.js --version
 # 1. Create your config and choose a provider
 sky init
 
-# 2. Point Sky at your API key (env var, never stored in plaintext)
+# 2. Point Sky at your API key (env var, or `/key` inside the TUI)
 export OPENAI_API_KEY=sk-...
+#    keys set with `/key` land in ~/.sky/secrets.json (mode 0600), never plaintext config
 
 # 3. Start an agent session in the current directory
 sky "refactor src/auth to use async/await throughout"
+
+# Optional: verify your setup
+sky doctor
 ```
 
 No key handy? Try the built-in offline provider:
@@ -78,12 +83,13 @@ sky --provider mock ask "what does this project do?"
 | ------------------- | ----- | -------------------------------------------------------- |
 | `sky` / `sky agent` | agent | Interactive agent: reads, writes, edits — with approval  |
 | `sky plan`          | plan  | Design-first: clarify and plan before any change         |
-| `sky ask`           | ask   | Read-only Q&A; no tools, no mutation                     |
+| `sky ask`           | ask   | Read-only Q&A with `read`/`search` tools; no mutation |
 | `sky resume [id]`   | —     | Resume a saved session (`--view` for read-only history)  |
 | `sky ls`            | —     | List sessions for the current directory                  |
+| `sky doctor`        | —     | Diagnose config, keys, providers, skills, and MCP        |
 | `sky config`        | —     | `get` / `set` / `list` / `validate` configuration        |
 | `sky init`          | —     | Create `~/.sky/config.json` with defaults                |
-| `sky mcp`           | —     | Register / list / remove / test MCP tool servers         |
+| `sky mcp`           | —     | Register / list / remove / **test** MCP tool servers     |
 | `sky update`        | —     | Update Sky to the latest version (pull + rebuild)        |
 | `sky plugin`        | —     | Add marketplaces, install/list/uninstall plugins         |
 
@@ -139,12 +145,28 @@ restart needed.
 You don't have to juggle environment variables. Inside the TUI:
 
 ```sh
-/provider zenmux             # switch provider (arrow-selectable)
-/key sk-ai-v1-...            # save the key for the current provider and reload live
+/provider gemini             # switch provider (arrow-selectable)
+/key sk-...                  # save to ~/.sky/secrets.json (0600) and reload live
+/status                      # session · tools · plugins · skills · MCP
+/key clear                   # remove the stored key for the current provider
 ```
 
-`/key` writes the key to `~/.sky/config.json` for the active provider and rebuilds
-the provider on the spot, so your next message works without restarting.
+`/key` writes the key to `~/.sky/secrets.json` (mode `0600`) for the active provider
+and rebuilds the provider on the spot, so your next message works without restarting.
+Plaintext `apiKey` fields in `config.json` are discouraged and stripped when `/key` runs.
+
+### Skills
+
+Drop a `SKILL.md` into `~/.sky/skills/<name>/` or `.sky/skills/<name>/` (project-local).
+Skills are injected into the system prompt on every turn — same idea as Claude/Cursor skills.
+
+```md
+---
+name: testing
+description: How this repo likes tests written
+---
+Prefer vitest. Colocate `*.test.ts` next to the module under test.
+```
 
 > Note: the base spec (§1.5) lists a plugin marketplace as a non-goal; this is an
 > explicit opt-in extension layered on top.
@@ -176,11 +198,14 @@ cli/ ─► agent/ ─► llm/  tools/  safety/  session/
 | `logging/`  | Structured JSON logging with secret redaction             |
 | `config/`   | Zod-validated config, precedence merging, secret resolution |
 | `session/`  | Atomic, versioned session persistence + index             |
-| `llm/`      | `Provider` interface + OpenAI/Anthropic/Ollama/Ollama-Cloud/OpenRouter/ZenMux/mock adapters |
-| `safety/`   | Policy engine, shell classification, diffs, audit log     |
-| `tools/`    | `read` `write` `edit` `search` `shell` `git` + registry   |
+| `llm/`      | `Provider` interface + OpenAI/Anthropic/Ollama/OpenRouter/ZenMux/OpenCode/Gemini/DeepSeek/Groq/mock |
+| `safety/`   | Policy engine, hardened shell denylist, diffs, audit log     |
+| `tools/`    | `read` `write` `edit` `search` `shell` `git` + registry (+ MCP tools) |
+| `mcp/`      | Stdio JSON-RPC MCP client; live tool registration            |
+| `skills/`   | `SKILL.md` loader for user/project/plugin skills             |
 | `agent/`    | The orchestration loop (a generator yielding typed events) |
 | `cli/`      | Commander command tree + headless & interactive rendering |
+| `tui/`      | Ink (React) interactive front-end with slash palette       |
 
 ## Development
 
@@ -197,21 +222,19 @@ npm run dev -- ask "hello"   # run from source
 
 `~/.sky/config.json`, validated on every load. Values can be overridden by a
 project-local `.skyrc`, `SKY_*` environment variables, and CLI flags — in that
-order of increasing precedence. API keys are resolved at runtime from an env var
-or the system keychain, never stored in plaintext. See Appendix A of the
+order of increasing precedence. API keys resolve at runtime from (in order) a
+discouraged config literal, `apiKeyEnv`, `~/.sky/secrets.json` (mode `0600`),
+`SKY_PROVIDERS_*_API_KEY`, or common provider env vars (`OPENAI_API_KEY`, …).
+See Appendix A of the
 [technical specification](./Sky_CLI_Agent_Technical_Specification.pdf) for the
 full key reference.
 
 ## Status
 
-This repository implements the core of the Sky v1 specification: the full module
-architecture, error catalog, config/session subsystems, the provider
-abstraction with an offline mock, the safety/approval layer, all six built-in
-tools, the agent loop, and the Commander CLI with headless (`--json`) and
-interactive modes. The interactive front-end is readline-based; because the
-agent loop emits a provider-agnostic event stream, an Ink (React) TUI can be
-layered on without touching the agent, safety, or tool modules — the decoupling
-the spec's §2.4.2 is designed around.
+Sky v1.1 implements the core specification plus production hardening: sandbox
+fixes for `edit`/`search`/`read`, a structured shell denylist, live MCP tool
+bridging, skills loading, secure secret storage, `sky doctor`, ask/plan read
+tools, and the Ink TUI as the primary interactive front-end.
 
 ## License
 

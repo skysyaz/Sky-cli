@@ -6,6 +6,7 @@
 export { Policy, type Decision, type PolicyRequest, type Classification } from './policy.js';
 export {
   classifyShellCommand,
+  isHardDeniedShellCommand,
   HARDCODED_SHELL_DENY,
   type ShellTier,
   type ShellClassification,

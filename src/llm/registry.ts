@@ -20,11 +20,14 @@ const OLLAMA_CLOUD_BASE_URL = 'https://ollama.com/v1';
 const OPENROUTER_BASE_URL = 'https://openrouter.ai/api/v1';
 const ZENMUX_BASE_URL = 'https://zenmux.ai/api/v1';
 const OPENCODE_BASE_URL = 'https://opencode.ai/api/v1';
+const GEMINI_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta/openai/';
+const DEEPSEEK_BASE_URL = 'https://api.deepseek.com/v1';
+const GROQ_BASE_URL = 'https://api.groq.com/openai/v1';
 
 /**
- * Instantiate the provider adapter named in config (§8.2). The four first-class
- * providers are OpenAI, Anthropic, Ollama, and OpenRouter; `mock` is always
- * available for offline use.
+ * Instantiate the provider adapter named in config (§8.2). OpenAI-compatible
+ * gateways (Ollama, OpenRouter, ZenMux, OpenCode, Gemini, DeepSeek, Groq)
+ * reuse {@link OpenAiAdapter}.
  */
 export function createProvider(options: CreateProviderOptions): Provider {
   const { config, provider, logger = nullLogger, env } = options;
@@ -48,16 +51,14 @@ export function createProvider(options: CreateProviderOptions): Provider {
       });
 
     case 'ollama':
-      // Reuses the OpenAI adapter against a *local* Ollama server (§8.5).
       return new OpenAiAdapter({
         apiKey: '',
         baseUrl: providerConfig?.baseUrl ?? OLLAMA_DEFAULT_BASE_URL,
-        includeUsage: false, // Ollama does not support stream_options.include_usage
+        includeUsage: false,
         name: 'ollama',
       });
 
     case 'ollama-cloud':
-      // Ollama's hosted service (ollama.com) — OpenAI-compatible, key required.
       return new OpenAiAdapter({
         apiKey: resolveApiKey('ollama-cloud', providerConfig, logger, env),
         baseUrl: providerConfig?.baseUrl ?? OLLAMA_CLOUD_BASE_URL,
@@ -65,7 +66,6 @@ export function createProvider(options: CreateProviderOptions): Provider {
       });
 
     case 'zenmux':
-      // ZenMux AI gateway — OpenAI-compatible, key required.
       return new OpenAiAdapter({
         apiKey: resolveApiKey('zenmux', providerConfig, logger, env),
         baseUrl: providerConfig?.baseUrl ?? ZENMUX_BASE_URL,
@@ -76,19 +76,47 @@ export function createProvider(options: CreateProviderOptions): Provider {
       return new OpenAiAdapter({
         apiKey: resolveApiKey('openrouter', providerConfig, logger, env),
         baseUrl: providerConfig?.baseUrl ?? OPENROUTER_BASE_URL,
-        defaultHeaders: { 'HTTP-Referer': 'https://github.com/sky-cli/sky' },
+        defaultHeaders: { 'HTTP-Referer': 'https://github.com/skysyaz/Sky-cli' },
         name: 'openrouter',
       });
 
     case 'opencode':
-      // OpenCode Zen AI gateway — OpenAI-compatible, free tier models available.
       return new OpenAiAdapter({
         apiKey: resolveApiKey('opencode', providerConfig, logger, env),
         baseUrl: providerConfig?.baseUrl ?? OPENCODE_BASE_URL,
         name: 'opencode',
       });
 
+    case 'gemini':
+      return new OpenAiAdapter({
+        apiKey: resolveApiKey('gemini', providerConfig, logger, env),
+        baseUrl: providerConfig?.baseUrl ?? GEMINI_BASE_URL,
+        name: 'gemini',
+      });
+
+    case 'deepseek':
+      return new OpenAiAdapter({
+        apiKey: resolveApiKey('deepseek', providerConfig, logger, env),
+        baseUrl: providerConfig?.baseUrl ?? DEEPSEEK_BASE_URL,
+        name: 'deepseek',
+      });
+
+    case 'groq':
+      return new OpenAiAdapter({
+        apiKey: resolveApiKey('groq', providerConfig, logger, env),
+        baseUrl: providerConfig?.baseUrl ?? GROQ_BASE_URL,
+        name: 'groq',
+      });
+
     default:
+      // Custom OpenAI-compatible endpoint: providers.<name> with baseUrl + key.
+      if (providerConfig?.baseUrl) {
+        return new OpenAiAdapter({
+          apiKey: resolveApiKey(provider, providerConfig, logger, env),
+          baseUrl: providerConfig.baseUrl,
+          name: provider,
+        });
+      }
       throw new SkyError(ErrorCode.UnknownProvider, { name: provider });
   }
 }

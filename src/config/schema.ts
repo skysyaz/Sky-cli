@@ -14,6 +14,9 @@ export const providerNameSchema = z.enum([
   'openrouter',
   'zenmux',
   'opencode',
+  'gemini',
+  'deepseek',
+  'groq',
   'mock',
 ]);
 export type ProviderName = z.infer<typeof providerNameSchema>;
@@ -47,8 +50,10 @@ const toolsSchema = z
   .object({
     read: z
       .object({
+        // Empty by default — in-cwd reads are auto-safe via the tool predicate;
+        // denylist for secrets still wins.
         autoApprove: z.array(z.string()).default([]),
-        deny: z.array(z.string()).default(['.env*', 'credentials*', '*.pem', '*.key']),
+        deny: z.array(z.string()).default(['.env*', 'credentials*', '*.pem', '*.key', '**/id_rsa*', '**/id_ed25519*']),
       })
       .default({}),
     write: z

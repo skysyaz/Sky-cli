@@ -1,7 +1,7 @@
 import type { SkyConfig } from '../config/index.js';
 import type { AllowlistEntry } from '../session/types.js';
 import { matchAnyGlob, matchAnyCommand, matchCommandPattern, matchGlob } from './glob.js';
-import { classifyShellCommand, HARDCODED_SHELL_DENY, type ShellClassification } from './shell.js';
+import { classifyShellCommand, isHardDeniedShellCommand, type ShellClassification } from './shell.js';
 
 /** The outcome of classifying a tool call (§9.2). */
 export type Decision = 'allow' | 'deny' | 'prompt';
@@ -48,10 +48,7 @@ export class Policy {
     if (tool === 'shell') {
       const command = String(input.command ?? '');
       const shell = classifyShellCommand(command);
-      if (
-        matchAnyCommand(command, HARDCODED_SHELL_DENY, false) ||
-        matchAnyCommand(command, this.tools().shell.deny, false)
-      ) {
+      if (isHardDeniedShellCommand(command) || matchAnyCommand(command, this.tools().shell.deny, false)) {
         return { decision: 'deny', reason: 'matches shell denylist', shell };
       }
       // Session/config allowlists can auto-approve; otherwise tier default.
@@ -72,6 +69,10 @@ export class Policy {
       const path = String(input.path ?? '');
       if (matchAnyGlob(path, this.tools().read.deny)) {
         return { decision: 'deny', reason: 'matches read denylist' };
+      }
+      // Absolute / parent escapes always need a prompt (or are refused at execute).
+      if (path.startsWith('/') || path.startsWith('..') || /^[A-Za-z]:[\\/]/.test(path)) {
+        return { decision: 'prompt', reason: 'read outside working directory' };
       }
       if (this.matchesSessionAllowlist(tool, path)) {
         return { decision: 'allow', reason: 'session allowlist' };
@@ -110,6 +111,10 @@ export class Policy {
     }
 
     if (tool === 'search') {
+      const path = String(input.path ?? '');
+      if (path.startsWith('/') || path.startsWith('..') || /^[A-Za-z]:[\\/]/.test(path)) {
+        return { decision: 'prompt', reason: 'search outside working directory' };
+      }
       // Read-only within cwd → auto; the tool predicate flags out-of-cwd searches.
       return this.fromPredicate(request);
     }

@@ -24,7 +24,10 @@ const PROVIDER_DEFAULTS: Record<string, { apiKeyEnv: string; model: string }> = 
   'ollama-cloud': { apiKeyEnv: 'OLLAMA_API_KEY', model: 'gpt-oss:120b' },
   openrouter: { apiKeyEnv: 'OPENROUTER_API_KEY', model: 'openai/gpt-4o' },
   zenmux: { apiKeyEnv: 'ZENMUX_API_KEY', model: 'x-ai/grok-4.5-free' },
-  opencode: { apiKeyEnv: '', model: 'deepseek-v4-flash-free' },
+  opencode: { apiKeyEnv: 'OPENCODE_API_KEY', model: 'deepseek-v4-flash-free' },
+  gemini: { apiKeyEnv: 'GEMINI_API_KEY', model: 'gemini-2.0-flash' },
+  deepseek: { apiKeyEnv: 'DEEPSEEK_API_KEY', model: 'deepseek-chat' },
+  groq: { apiKeyEnv: 'GROQ_API_KEY', model: 'llama-3.3-70b-versatile' },
   mock: { apiKeyEnv: '', model: 'mock-1' },
 };
 
@@ -145,7 +148,9 @@ export async function initCommand(global: GlobalOptions): Promise<number> {
   if (interactive) {
     const rl = createInterface({ input: process.stdin, output: process.stdout });
     const p = (
-      await rl.question('Provider [openai/anthropic/ollama/ollama-cloud/openrouter/zenmux/opencode/mock] (openai): ')
+      await rl.question(
+        'Provider [openai/anthropic/ollama/ollama-cloud/openrouter/zenmux/opencode/gemini/deepseek/groq/mock] (openai): ',
+      )
     ).trim();
     rl.close();
     if (p && PROVIDER_DEFAULTS[p]) provider = p;
@@ -261,8 +266,16 @@ export async function mcpCommand(
       if (!name) throw new SkyError(ErrorCode.MissingArgument, { name: 'name' });
       const server = config.mcp.servers.find((s) => s.name === name);
       if (!server) throw new SkyError(ErrorCode.McpNotConnected, { name });
-      process.stdout.write(`MCP server '${name}' is registered (${server.command}). Live connection test requires @modelcontextprotocol/sdk.\n`);
-      return 0;
+      const { testMcpServer } = await import('../mcp/index.js');
+      const result = await testMcpServer(server);
+      if (result.ok) {
+        process.stdout.write(
+          `✓ MCP server '${name}' connected. Tools: ${result.tools.length ? result.tools.join(', ') : '(none)'}\n`,
+        );
+        return 0;
+      }
+      process.stderr.write(`✗ MCP server '${name}' failed: ${result.error}\n`);
+      return 1;
     }
     default:
       throw new SkyError(ErrorCode.UnknownCommand, { name: `mcp ${action}` });
@@ -295,10 +308,13 @@ function setDeep(obj: Record<string, unknown>, key: string, value: unknown): voi
 
 /** Parse a duration like `7d`, `24h`, `30m` into milliseconds. */
 function parseDuration(input: string): number {
-  const m = input.match(/^(\d+)([dhm])$/);
-  if (!m) return 0;
+  const m = input.match(/^(\d+)([dhm])$/i);
+  if (!m) {
+    throw new SkyError(ErrorCode.InvalidFlagValue, { flag: '--since', value: input });
+  }
   const n = Number(m[1]);
-  return m[2] === 'd' ? n * 86_400_000 : m[2] === 'h' ? n * 3_600_000 : n * 60_000;
+  const unit = m[2].toLowerCase();
+  return unit === 'd' ? n * 86_400_000 : unit === 'h' ? n * 3_600_000 : n * 60_000;
 }
 
 function plainChalk(): typeof chalk {
@@ -306,3 +322,99 @@ function plainChalk(): typeof chalk {
 }
 
 export type { SkyConfig };
+
+/** `sky doctor` — diagnose config, keys, providers, MCP, and environment. */
+export async function doctorCommand(global: GlobalOptions): Promise<number> {
+  const c = global.color === false ? plainChalk() : chalk;
+  const lines: string[] = [];
+  let issues = 0;
+
+  const check = (ok: boolean, label: string, detail?: string): void => {
+    if (ok) lines.push(`${c.green('✓')} ${label}${detail ? c.gray(` — ${detail}`) : ''}`);
+    else {
+      issues++;
+      lines.push(`${c.red('✗')} ${label}${detail ? c.gray(` — ${detail}`) : ''}`);
+    }
+  };
+
+  lines.push(c.bold('Sky doctor'));
+  lines.push('');
+
+  // Node version
+  const nodeMajor = Number(process.versions.node.split('.')[0]);
+  check(nodeMajor >= 20, `Node.js ${process.versions.node}`, nodeMajor >= 20 ? 'ok' : 'need >= 20');
+
+  // Config
+  const path = global.config ?? configPath();
+  const hasConfig = configExists(path);
+  check(hasConfig, `Config at ${path}`, hasConfig ? 'found' : 'run `sky init`');
+
+  let config = defaultConfig();
+  if (hasConfig) {
+    try {
+      config = loadConfig({ cli: { configPath: path }, cwd: global.cwd ?? process.cwd() });
+      check(true, 'Config schema', `provider=${config.defaultProvider} model=${config.defaultModel}`);
+    } catch (error) {
+      check(false, 'Config schema', SkyError.from(error).message);
+    }
+  }
+
+  // API key for default provider
+  const { hasApiKey } = await import('../config/index.js');
+  const provider = global.provider ?? config.defaultProvider;
+  const keyOk =
+    provider === 'mock' || provider === 'ollama' || hasApiKey(provider, config.providers[provider]);
+  check(keyOk, `API key for ${provider}`, keyOk ? 'resolved' : `set via /key or export ${provider.toUpperCase().replace(/-/g, '_')}_API_KEY`);
+
+  // Optional SDKs
+  try {
+    await import('openai');
+    check(true, 'openai SDK', 'installed');
+  } catch {
+    check(false, 'openai SDK', 'run `npm install openai`');
+  }
+  try {
+    await import('@anthropic-ai/sdk');
+    check(true, '@anthropic-ai/sdk', 'installed');
+  } catch {
+    check(provider !== 'anthropic', '@anthropic-ai/sdk', 'optional unless using anthropic');
+  }
+
+  // Plugins / skills / MCP
+  try {
+    const { PluginManager } = await import('../plugins/index.js');
+    const plugins = new PluginManager().load();
+    check(true, 'Plugins', `${plugins.length} loaded`);
+  } catch (error) {
+    check(false, 'Plugins', (error as Error).message);
+  }
+
+  try {
+    const { loadSkills } = await import('../skills/index.js');
+    const skills = loadSkills({ cwd: global.cwd ?? process.cwd() });
+    check(true, 'Skills', `${skills.length} loaded (from ~/.sky/skills and .sky/skills)`);
+  } catch (error) {
+    check(false, 'Skills', (error as Error).message);
+  }
+
+  const mcpServers = config.mcp.servers;
+  if (mcpServers.length === 0) {
+    check(true, 'MCP servers', 'none registered (sky mcp add …)');
+  } else {
+    const { testMcpServer } = await import('../mcp/index.js');
+    for (const server of mcpServers) {
+      const result = await testMcpServer(server);
+      check(result.ok, `MCP ${server.name}`, result.ok ? `${result.tools.length} tools` : result.error);
+    }
+  }
+
+  lines.push('');
+  if (issues === 0) {
+    lines.push(c.green('All checks passed. Ready to fly.'));
+  } else {
+    lines.push(c.yellow(`${issues} issue(s) found. Fix the items marked ✗ above.`));
+  }
+
+  process.stdout.write(lines.join('\n') + '\n');
+  return issues === 0 ? 0 : 1;
+}

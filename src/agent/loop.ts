@@ -11,7 +11,8 @@ import type { ToolContext } from '../tools/types.js';
 import type { Approver } from '../safety/approver.js';
 import type { Policy } from '../safety/policy.js';
 import { generateDiff } from '../safety/diff.js';
-import { buildSystemPrompt, modeHasTools } from './prompts.js';
+import type { Skill } from '../skills/types.js';
+import { buildSystemPrompt, modeHasTools, filterToolsForMode, toolsForMode } from './prompts.js';
 import type { AgentEvent } from './events.js';
 
 export interface AgentLoopOptions {
@@ -25,6 +26,8 @@ export interface AgentLoopOptions {
   logger?: Logger;
   signal?: AbortSignal;
   maxIterations?: number;
+  /** Skills injected into the system prompt. */
+  skills?: Skill[];
 }
 
 /**
@@ -46,6 +49,10 @@ export class AgentLoop {
   async *run(userMessage?: string): AsyncGenerator<AgentEvent> {
     const { session, store } = this.opts;
 
+    if (session.lastTurnInterrupted) {
+      this.logger.warn('agent.resume.interrupted', { sessionId: session.id });
+    }
+
     if (userMessage !== undefined) {
       store.appendMessage(session, { role: 'user', content: userMessage });
     }
@@ -59,6 +66,8 @@ export class AgentLoop {
     let finishReason = 'stop';
 
     try {
+      this.maybeCompact(session);
+
       for (let iteration = 0; iteration < maxIterations; iteration++) {
         if (this.opts.signal?.aborted) throw new SkyError(ErrorCode.AgentAborted, {});
 
@@ -74,8 +83,7 @@ export class AgentLoop {
 
         if (toolCalls.length === 0) break; // turn complete
 
-        // In plan/ask mode the provider is given no tools, so any tool call is a
-        // protocol violation we surface rather than execute.
+        // In modes without tools, any tool call is a protocol violation.
         if (!modeHasTools(session.mode)) {
           throw new SkyError(
             session.mode === 'plan' ? ErrorCode.PlanModeRejectedTool : ErrorCode.AskModeReceivedTool,
@@ -83,7 +91,23 @@ export class AgentLoop {
           );
         }
 
+        // Plan/ask: reject mutating tools even if the model invents them.
+        const access = toolsForMode(session.mode);
         for (const toolCall of toolCalls) {
+          if (access === 'readonly') {
+            const allowed = filterToolsForMode(session.mode, [{ name: toolCall.name }]);
+            if (allowed.length === 0) {
+              const output = `${session.mode} mode is read-only; '${toolCall.name}' is not permitted.`;
+              store.appendMessage(session, {
+                role: 'tool',
+                content: output,
+                toolCallId: toolCall.id,
+                name: toolCall.name,
+              });
+              yield { type: 'tool-result', toolCallId: toolCall.id, toolName: toolCall.name, ok: false, output };
+              continue;
+            }
+          }
           yield* this.handleToolCall(session, toolCall);
         }
 
@@ -97,11 +121,36 @@ export class AgentLoop {
       yield { type: 'turn-end', finishReason };
     } catch (error) {
       const skyError = SkyError.from(error);
-      session.lastTurnInterrupted = false;
+      // Keep interrupted=true on abort so resume can surface it; clear on other errors.
+      if (skyError.code !== ErrorCode.AgentAborted) {
+        session.lastTurnInterrupted = false;
+      }
       store.save(session);
       this.logger.error('agent.turn.failed', { code: skyError.code });
       yield { type: 'error', error: skyError };
     }
+  }
+
+  /** Lightweight auto-compaction when past the configured threshold. */
+  private maybeCompact(session: Session): void {
+    const { config, store } = this.opts;
+    if (!config.sessions.autoCompact) return;
+    const total = session.tokenUsage.input + session.tokenUsage.output;
+    if (total < config.sessions.autoCompactThreshold) return;
+    if (session.messages.length < 12) return;
+
+    const systemKeep = session.messages.filter((m) => m.role === 'system');
+    const recent = session.messages.slice(-8);
+    const dropped = session.messages.length - systemKeep.length - recent.length;
+    if (dropped <= 0) return;
+
+    const summary: Message = {
+      role: 'user',
+      content: `[compacted ${dropped} earlier messages to reclaim context]`,
+    };
+    session.messages = [...systemKeep, summary, ...recent];
+    store.save(session);
+    this.logger.info('agent.compacted', { dropped, remaining: session.messages.length });
   }
 
   /** Stream one provider response, yielding text/tool-call events. */
@@ -111,20 +160,28 @@ export class AgentLoop {
     const { provider, registry, config } = this.opts;
     const limits = provider.tokenLimits(session.model);
 
-    const system: LlmMessage = { role: 'system', content: buildSystemPrompt(session.mode, session.cwd) };
+    const system: LlmMessage = {
+      role: 'system',
+      content: buildSystemPrompt(session.mode, session.cwd, this.opts.skills ?? []),
+    };
     const history = session.messages as LlmMessage[];
     const messages = buildContext({ messages: [system, ...history], limits });
+
+    const allDefs = registry.definitions();
+    const tools = modeHasTools(session.mode) ? filterToolsForMode(session.mode, allDefs) : undefined;
 
     const request: StreamRequest = {
       messages,
       model: session.model,
-      tools: modeHasTools(session.mode) ? registry.definitions() : undefined,
+      tools: tools?.length ? tools : undefined,
       maxOutputTokens: limits.maxOutput,
       signal: this.opts.signal,
     };
 
     // Retry the stream only if it fails before emitting any output.
+    // Prefer configured provider fallback after repeated failures.
     const retries = 4;
+    const fallback = config.providers[session.provider]?.fallback;
     for (let attempt = 0; ; attempt++) {
       let assistantText = '';
       const toolCalls: ToolCall[] = [];
@@ -132,6 +189,7 @@ export class AgentLoop {
       let emitted = false;
       try {
         for await (const chunk of provider.stream(request)) {
+          if (this.opts.signal?.aborted) throw new SkyError(ErrorCode.AgentAborted, {});
           if (chunk.type === 'text-delta') {
             emitted = true;
             assistantText += chunk.text;
@@ -153,9 +211,19 @@ export class AgentLoop {
       } catch (error) {
         const skyError = SkyError.from(error, ErrorCode.ProviderRequestFailed);
         if (skyError.retryable && !emitted && attempt < retries) {
-          const delay = Math.min(30_000, 1000 * 2 ** attempt);
+          const delay = Math.min(30_000, 1000 * 2 ** attempt + Math.floor(Math.random() * 250));
           this.logger.warn('provider.retry', { attempt: attempt + 1, code: skyError.code });
           await new Promise((r) => setTimeout(r, delay));
+          // After triggerAfter retries, swap model/provider if fallback configured.
+          if (fallback && attempt + 1 >= fallback.triggerAfter) {
+            this.logger.warn('provider.fallback', {
+              from: `${session.provider}:${session.model}`,
+              to: `${fallback.provider}:${fallback.model}`,
+            });
+            session.provider = fallback.provider;
+            session.model = fallback.model;
+            request.model = fallback.model;
+          }
           continue;
         }
         throw skyError;
@@ -237,7 +305,19 @@ export class AgentLoop {
       return;
     }
 
-    const execResult = await registry.execute(toolCall.name, toolCall.input, ctx);
+    // Apply user-edited content from the approval prompt when present.
+    let input = toolCall.input;
+    if (result.edited !== undefined) {
+      if (toolCall.name === 'write') {
+        input = { ...input, content: result.edited };
+      } else if (toolCall.name === 'shell') {
+        input = { ...input, command: result.edited };
+      } else if (toolCall.name === 'edit') {
+        input = { ...input, newText: result.edited };
+      }
+    }
+
+    const execResult = await registry.execute(toolCall.name, input, ctx);
     store.appendMessage(session, {
       role: 'tool',
       content: execResult.output,

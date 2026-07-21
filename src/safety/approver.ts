@@ -126,6 +126,13 @@ export class Approver {
       return { granted: false, decision: 'prompt', autoApproved: false };
     }
 
+    // "edit" without replacement content is not a silent approve — decline so
+    // the user can re-issue with the intended change (TUI may supply `edited`).
+    if (answer === 'edit') {
+      this.record({ ...base, decision: 'prompt', granted: false, autoApproved: false });
+      return { granted: false, decision: 'prompt', autoApproved: false };
+    }
+
     let allowlistAdded: AllowlistEntry | undefined;
     if (answer === 'always') {
       allowlistAdded = Policy.deriveAllowlistPattern(req.toolName, req.input);

@@ -11,8 +11,9 @@ import { AuditLog } from '../safety/audit.js';
 import { Approver, type Prompter, type ApprovalAnswer, type ApprovalPromptRequest } from '../safety/approver.js';
 import { AgentLoop } from '../agent/loop.js';
 import { SkyError } from '../errors/index.js';
-import { writeConfig } from '../config/index.js';
+import { writeConfig, writeSecret, clearSecret } from '../config/index.js';
 import { PluginManager, runPluginCommand, type LoadedPlugin, type PluginCommand } from '../plugins/index.js';
+import type { Skill } from '../skills/index.js';
 import {
   getSuggestions,
   parseInput,
@@ -37,6 +38,8 @@ export interface AppProps {
   initialPrompt?: string;
   /** Plugins auto-loaded at startup; their commands appear in the palette. */
   plugins?: LoadedPlugin[];
+  /** Skills loaded from ~/.sky/skills and project paths. */
+  skills?: Skill[];
 }
 
 type LogKind = 'user' | 'assistant' | 'tool' | 'tool-result' | 'system' | 'error';
@@ -140,6 +143,7 @@ export function App(props: AppProps): React.ReactElement {
       config,
       logger: props.logger,
       signal: abort.signal,
+      skills: props.skills,
     });
 
     let streamed = '';
@@ -191,12 +195,14 @@ export function App(props: AppProps): React.ReactElement {
         pushLog(
           'system',
           [
-            'Commands: /help /mode /model /provider /key /cost /diff /plugin /clear /exit',
-            '/provider <name>   switch LLM provider',
-            '/key <api-key>     set + save the API key for the current provider (reloads live)',
-            '/plugin marketplace add <owner/repo> · /plugin install <name@market> · /plugin search <q>',
-            'Type / to open the palette · ↑/↓ to move · Tab/Enter to select · Esc to clear',
-            'Enter submits · Ctrl+C cancels a turn (twice to quit) · Ctrl+D quits',
+            'Sky commands',
+            '  /help /status /mode /model /provider /key /cost /diff /plugin /compact /clear /exit',
+            '  /provider <name>   switch LLM provider (openai, anthropic, gemini, …)',
+            '  /key <api-key>     save key to ~/.sky/secrets.json (mode 0600) and reload',
+            '  /key clear         remove the stored key for the current provider',
+            '  /plugin marketplace add <owner/repo> · install <name@market> · search <q>',
+            'Keys: type / for palette · ↑/↓ · Tab/Enter · Esc clears · Enter submits',
+            '      Ctrl+C cancels a running turn · Ctrl+C on empty input or Ctrl+D quits',
           ].join('\n'),
         );
         break;
@@ -247,24 +253,65 @@ export function App(props: AppProps): React.ReactElement {
       case 'key': {
         const value = arg?.trim();
         if (!value) {
-          pushLog('system', 'Usage: /key <api-key>   (saved for the current provider and reloaded)');
+          pushLog('system', 'Usage: /key <api-key>   or   /key clear');
           break;
         }
         const providerName = session.provider;
-        config.providers[providerName] = { ...(config.providers[providerName] ?? {}), apiKey: value };
+        if (value.toLowerCase() === 'clear') {
+          clearSecret(providerName);
+          if (config.providers[providerName]?.apiKey) {
+            delete config.providers[providerName].apiKey;
+            try {
+              writeConfig(config);
+            } catch {
+              /* ignore */
+            }
+          }
+          pushLog('system', `Cleared stored key for ${providerName}.`);
+          buildProvider(providerName);
+          break;
+        }
+        // Prefer secrets file (0600) — never write plaintext apiKey into config.json.
         try {
+          writeSecret(providerName, value);
+          // Ensure config points at a conventional env name for documentation.
+          const envHint =
+            config.providers[providerName]?.apiKeyEnv ??
+            `${providerName.toUpperCase().replace(/[^A-Z0-9]/g, '_')}_API_KEY`;
+          config.providers[providerName] = {
+            ...(config.providers[providerName] ?? {}),
+            apiKeyEnv: config.providers[providerName]?.apiKeyEnv ?? envHint,
+          };
+          // Strip any previously stored plaintext key.
+          delete config.providers[providerName].apiKey;
           writeConfig(config);
         } catch (error) {
-          pushLog('error', `Saved in-session but could not persist: ${(error as Error).message}`);
+          pushLog('error', `Could not persist key: ${(error as Error).message}`);
+          break;
         }
-        // Rebuild provider with updated config — the makeProvider function reads from
-        // the in-memory config object which we just updated, so it will now see the key.
         const built = buildProvider(providerName);
         pushLog(
           'system',
           built
-            ? `API key saved for ${providerName}. Ready — send your message.`
-            : `Key set but ${providerName} still failed to initialize.`,
+            ? `API key saved securely for ${providerName}. Ready — send your message.`
+            : `Key saved but ${providerName} still failed to initialize.`,
+        );
+        break;
+      }
+      case 'status': {
+        const mcpCount = config.mcp.servers.length;
+        const toolCount = registry.list().length;
+        const skillCount = props.skills?.length ?? 0;
+        const pluginCount = plugins.length;
+        pushLog(
+          'system',
+          [
+            `session ${session.id.slice(0, 8)} · ${mode} · ${session.provider}:${model}`,
+            `cwd ${session.cwd}`,
+            `tools ${toolCount} · plugins ${pluginCount} · skills ${skillCount} · mcp servers ${mcpCount}`,
+            `tokens ${session.tokenUsage.input} in / ${session.tokenUsage.output} out · ~$${session.tokenUsage.estimatedCostUsd.toFixed(4)}`,
+            session.lastTurnInterrupted ? '⚠ last turn was interrupted — history may be incomplete' : 'session healthy',
+          ].join('\n'),
         );
         break;
       }
@@ -278,7 +325,19 @@ export function App(props: AppProps): React.ReactElement {
         pushLog('system', `${filesEdited} file(s) edited this session. Run \`git diff\` to review.`);
         break;
       case 'compact':
-        pushLog('system', 'Compaction runs automatically past the threshold; manual /compact is a no-op here.');
+        // Trigger by lowering effective history via a marker message the loop will compact next turn.
+        if (session.messages.length > 4) {
+          const keep = session.messages.slice(-6);
+          const dropped = session.messages.length - keep.length;
+          session.messages = [
+            { role: 'user', content: `[compacted ${dropped} earlier messages]` },
+            ...keep,
+          ];
+          store.save(session);
+          pushLog('system', `Compacted ${dropped} messages. Context reclaimed.`);
+        } else {
+          pushLog('system', 'Nothing to compact yet.');
+        }
         break;
       case 'plugin':
         void runPluginSlash(arg ?? '');
@@ -381,7 +440,11 @@ export function App(props: AppProps): React.ReactElement {
       if (answer === 'y' || key.return) resolved = 'yes';
       else if (answer === 'n' || key.escape) resolved = 'no';
       else if (answer === 'a') resolved = 'always';
-      else if (answer === 'e') resolved = 'edit';
+      else if (answer === 'e') {
+        // Inline edit is not supported yet — decline so the user can rephrase.
+        resolved = 'no';
+        pushLog('system', 'Inline edit is not available; declined. Re-send with the change you want.');
+      }
       if (resolved) {
         approval.resolve(resolved);
         setApproval(null);
@@ -527,10 +590,16 @@ function Palette({ suggestions, selected }: { suggestions: Suggestion[]; selecte
 }
 
 function InputBox({ value, mode }: { value: string; mode: Mode }): React.ReactElement {
+  const placeholder =
+    mode === 'ask'
+      ? 'Ask about the codebase — or type / for commands'
+      : mode === 'plan'
+        ? 'Describe what to plan — or type / for commands'
+        : 'Ask, build, or type / for commands';
   return (
     <Box borderStyle="round" borderColor={MODE_COLOR[mode]} paddingX={1}>
       <Text color={MODE_COLOR[mode]}>› </Text>
-      {value ? <Text>{value}</Text> : <Text color="gray">Ask, build, or type / for commands</Text>}
+      {value ? <Text>{value}</Text> : <Text color="gray">{placeholder}</Text>}
       <Text color="gray">█</Text>
     </Box>
   );
@@ -597,7 +666,8 @@ function ApprovalModal({ request }: { request: ApprovalPromptRequest }): React.R
         <Text color="gray">{summarize(request.input)}</Text>
       )}
       <Box marginTop={1}>
-        <Text bold>[y]es [n]o [a]lways [e]dit</Text>
+        <Text bold>[y]es [n]o [a]lways</Text>
+        <Text color="gray"> · Esc to deny</Text>
       </Box>
     </Box>
   );

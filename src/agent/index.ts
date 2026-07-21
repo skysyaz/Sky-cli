@@ -4,4 +4,4 @@
  */
 export { AgentLoop, type AgentLoopOptions } from './loop.js';
 export type { AgentEvent } from './events.js';
-export { buildSystemPrompt, modeHasTools } from './prompts.js';
+export { buildSystemPrompt, modeHasTools, toolsForMode, filterToolsForMode } from './prompts.js';

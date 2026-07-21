@@ -15,20 +15,37 @@ export const MODEL_SUGGESTIONS = [
   'gpt-4o',
   'gpt-4o-mini',
   'claude-3-5-sonnet',
+  'claude-sonnet-4-5',
+  'gemini-2.0-flash',
+  'deepseek-chat',
+  'llama-3.3-70b-versatile',
   'x-ai/grok-4.5-free',
   'gpt-oss:120b',
   'qwen3-coder:480b',
 ];
 
 /** The providers a user can switch to via `/provider`. */
-export const PROVIDER_NAMES = ['openai', 'anthropic', 'ollama', 'ollama-cloud', 'openrouter', 'zenmux', 'opencode', 'mock'];
+export const PROVIDER_NAMES = [
+  'openai',
+  'anthropic',
+  'ollama',
+  'ollama-cloud',
+  'openrouter',
+  'zenmux',
+  'opencode',
+  'gemini',
+  'deepseek',
+  'groq',
+  'mock',
+];
 
 export const SLASH_COMMANDS: SlashCommand[] = [
   { name: 'help', description: 'Show keybindings and commands' },
   { name: 'mode', description: 'Switch mode', args: ['agent', 'plan', 'ask'] },
   { name: 'model', description: 'Switch model', args: MODEL_SUGGESTIONS },
   { name: 'provider', description: 'Switch LLM provider', args: PROVIDER_NAMES },
-  { name: 'key', description: 'Set the API key for the current provider (saved + reloaded)' },
+  { name: 'key', description: 'Set API key for current provider (saved to secrets file)' },
+  { name: 'status', description: 'Show session, provider, tools, skills, MCP status' },
   { name: 'cost', description: 'Show token and estimated cost usage' },
   { name: 'diff', description: 'Show uncommitted changes this session' },
   { name: 'compact', description: 'Summarize old turns to reclaim context' },

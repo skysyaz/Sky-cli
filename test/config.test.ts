@@ -104,4 +104,9 @@ describe('secret resolution (§7.7)', () => {
     expect(resolveApiKey('ollama', undefined, undefined, {})).toBe('');
     expect(resolveApiKey('mock', undefined, undefined, {})).toBe('');
   });
+  it('requires a key for hosted opencode', () => {
+    expect(() => resolveApiKey('opencode', undefined, undefined, {})).toThrowError(
+      expect.objectContaining({ code: ErrorCode.NoApiKey }),
+    );
+  });
 });

@@ -4,7 +4,7 @@ import { z } from 'zod';
 import { execa } from 'execa';
 import { ErrorCode } from '../errors/index.js';
 import type { Tool, ToolContext, ToolResult } from './types.js';
-import { resolveInCwd } from './paths.js';
+import { resolveInCwd, isInsideCwd } from './paths.js';
 
 const schema = z.object({
   pattern: z.string(),
@@ -107,11 +107,21 @@ export const searchTool: Tool<Input> = {
     required: ['pattern'],
   },
   requiresApproval(input: Input) {
-    // Searches outside the workspace require approval (§6.5).
-    return input.path !== undefined && input.path.startsWith('..');
+    // Absolute paths and `..` escapes need approval — the policy engine still
+    // runs; this only signals "not automatically safe".
+    if (input.path === undefined || input.path === '' || input.path === '.') return false;
+    return input.path.startsWith('..') || input.path.startsWith('/') || /^[A-Za-z]:[\\/]/.test(input.path);
   },
   async execute(input: Input, ctx: ToolContext): Promise<ToolResult> {
     const searchRoot = resolveInCwd(ctx.cwd, input.path ?? '.');
+    if (!ctx.config.tools.write.allowOutsideCwd && !isInsideCwd(ctx.cwd, searchRoot)) {
+      return {
+        ok: false,
+        output: `Search refused: ${input.path} is outside the working directory.`,
+        code: ErrorCode.WritePathOutsideCwd,
+        retryable: true,
+      };
+    }
     if (!existsSync(searchRoot)) {
       return { ok: false, output: `Path not found: ${input.path}`, code: ErrorCode.ToolInputInvalid, retryable: true };
     }

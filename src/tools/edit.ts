@@ -2,7 +2,7 @@ import { readFileSync, existsSync, writeFileSync } from 'node:fs';
 import { z } from 'zod';
 import { ErrorCode } from '../errors/index.js';
 import type { Tool, ToolContext, ToolResult, ToolDiffPreview } from './types.js';
-import { resolveInCwd } from './paths.js';
+import { resolveInCwd, isInsideCwd } from './paths.js';
 
 const schema = z.object({
   path: z.string(),
@@ -67,6 +67,10 @@ export const editTool: Tool<Input> = {
   },
   async preview(input: Input, ctx: ToolContext): Promise<ToolDiffPreview | undefined> {
     const abs = resolveInCwd(ctx.cwd, input.path);
+    // Never read file contents outside cwd for the approval preview.
+    if (!ctx.config.tools.write.allowOutsideCwd && !isInsideCwd(ctx.cwd, abs)) {
+      return undefined;
+    }
     if (!existsSync(abs)) return undefined;
     const oldContent = readFileSync(abs, 'utf8');
     if (countOccurrences(oldContent, input.oldText) === 0) return undefined;
@@ -75,6 +79,14 @@ export const editTool: Tool<Input> = {
   },
   async execute(input: Input, ctx: ToolContext): Promise<ToolResult> {
     const abs = resolveInCwd(ctx.cwd, input.path);
+    if (!ctx.config.tools.write.allowOutsideCwd && !isInsideCwd(ctx.cwd, abs)) {
+      return {
+        ok: false,
+        output: `Edit refused: ${input.path} is outside the working directory.`,
+        code: ErrorCode.WritePathOutsideCwd,
+        retryable: true,
+      };
+    }
     if (!existsSync(abs)) {
       return { ok: false, output: `File not found: ${input.path}`, code: ErrorCode.EditOldTextNotFound, retryable: true };
     }

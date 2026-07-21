@@ -31,8 +31,12 @@ export const writeTool: Tool<Input> = {
   requiresApproval() {
     return true;
   },
-  async preview(input: Input, ctx: ToolContext): Promise<ToolDiffPreview> {
+  async preview(input: Input, ctx: ToolContext): Promise<ToolDiffPreview | undefined> {
     const abs = resolveInCwd(ctx.cwd, input.path);
+    // Do not leak contents of files outside the sandbox into the approval UI.
+    if (!ctx.config.tools.write.allowOutsideCwd && !isInsideCwd(ctx.cwd, abs)) {
+      return { path: input.path, oldContent: '', newContent: input.content };
+    }
     const oldContent = existsSync(abs) ? readFileSync(abs, 'utf8') : '';
     return { path: input.path, oldContent, newContent: input.content };
   },

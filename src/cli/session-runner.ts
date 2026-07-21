@@ -6,7 +6,7 @@ import { AgentLoop } from '../agent/loop.js';
 import { Policy } from '../safety/policy.js';
 import { renderStream } from './render.js';
 import { createInteractivePrompter, denyingPrompter } from './prompter.js';
-import { makeApprover, makeProvider, makeProviderByName, type GlobalOptions, type Runtime } from './runtime.js';
+import { makeApprover, makeProvider, makeProviderByName, attachMcp, type GlobalOptions, type Runtime } from './runtime.js';
 
 export interface RunSessionOptions {
   runtime: Runtime;
@@ -22,6 +22,7 @@ export interface RunSessionOptions {
 /** Run a single agent turn, rendering its event stream. Returns the exit code. */
 async function runTurn(options: RunSessionOptions, prompt: string | undefined): Promise<number> {
   const { runtime, global, session } = options;
+  await attachMcp(runtime);
   const provider = makeProvider(runtime, global);
   const policy = new Policy(runtime.config, session.sessionAllowlist);
   const interactive = !options.oneShot && !global.json && Boolean(process.stdin.isTTY);
@@ -41,6 +42,7 @@ async function runTurn(options: RunSessionOptions, prompt: string | undefined): 
     store: runtime.store,
     config: runtime.config,
     logger: runtime.logger,
+    skills: runtime.skills,
   });
 
   return renderStream(loop.run(prompt), { json: runtime.json, color: runtime.color });
@@ -72,6 +74,7 @@ export async function runSession(options: RunSessionOptions): Promise<number> {
     runtime.logger.warn('tui.unavailable', { detail: (error as Error).message });
   }
   if (runTui) {
+    await attachMcp(runtime);
     await runTui({
       makeProvider: (name: string) => makeProviderByName(runtime, name),
       registry: runtime.registry,
@@ -83,6 +86,7 @@ export async function runSession(options: RunSessionOptions): Promise<number> {
       yolo: global.yolo,
       initialPrompt: options.initialPrompt,
       plugins: runtime.plugins,
+      skills: runtime.skills,
     });
     return 0;
   }
@@ -142,6 +146,9 @@ function handleSlashCommand(line: string, session: Session, runtime: Runtime): b
           '/help                 show this help',
           '/mode [agent|plan|ask] switch mode',
           '/model <name>         switch model',
+          '/provider <name>      switch LLM provider',
+          '/key <api-key>        save API key securely (secrets file)',
+          '/status               show session status',
           '/cost                 show token & cost usage',
           '/diff                 (agent mode) show uncommitted changes',
           '/clear                clear the screen',
