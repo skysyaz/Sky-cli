@@ -37,7 +37,7 @@ export function providerErrorFromStatus(status: number | undefined, detail: stri
         ErrorCode.ProviderAuthFailed,
         {
           detail:
-            ' — for OpenCode free models: `/keys clear opencode` (stale key overrides guest token), or get a Zen key at https://opencode.ai/auth',
+            ' — check API key. OpenCode free: `/keys clear opencode` then retry, or get a free Zen key at https://opencode.ai/auth and `/keys set opencode <key>`',
         },
         cause,
       );
