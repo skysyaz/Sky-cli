@@ -220,3 +220,29 @@ export function getSuggestions(
     .filter((a) => matches(a, parsed.arg))
     .map((a) => ({ kind: 'arg' as const, label: a, description: '', value: a }));
 }
+
+/**
+ * Compute a scrolling window into a palette list so arrow-key selection stays
+ * visible. Returns the slice to render and the selected index within that slice.
+ */
+export function paletteWindow<T>(
+  items: T[],
+  selected: number,
+  size = 10,
+): { visible: T[]; localSelected: number; start: number; hasAbove: boolean; hasBelow: boolean } {
+  if (items.length === 0) {
+    return { visible: [], localSelected: 0, start: 0, hasAbove: false, hasBelow: false };
+  }
+  const windowSize = Math.max(1, Math.min(size, items.length));
+  const sel = Math.max(0, Math.min(selected, items.length - 1));
+  // Keep selection near the middle of the window when possible.
+  let start = sel - Math.floor((windowSize - 1) / 2);
+  start = Math.max(0, Math.min(start, items.length - windowSize));
+  return {
+    visible: items.slice(start, start + windowSize),
+    localSelected: sel - start,
+    start,
+    hasAbove: start > 0,
+    hasBelow: start + windowSize < items.length,
+  };
+}

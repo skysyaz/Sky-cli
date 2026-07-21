@@ -19,6 +19,7 @@ import {
   parseInput,
   SLASH_COMMANDS,
   modelsForProvider,
+  paletteWindow,
   PROVIDER_NAMES,
   type Suggestion,
 } from './commands.js';
@@ -485,6 +486,15 @@ export function App(props: AppProps): React.ReactElement {
       setSelected((s) => (s + 1) % suggestions.length);
       return;
     }
+    // PageUp / PageDown — Termux soft-key row sends these.
+    if (paletteOpen && key.pageUp) {
+      setSelected((s) => Math.max(0, s - 10));
+      return;
+    }
+    if (paletteOpen && key.pageDown) {
+      setSelected((s) => Math.min(Math.max(0, suggestions.length - 1), s + 10));
+      return;
+    }
     if (paletteOpen && key.tab) {
       acceptSuggestion(suggestions[clampedSelected]);
       return;
@@ -580,19 +590,23 @@ function LogLine({ item }: { item: LogItem }): React.ReactElement {
 }
 
 function Palette({ suggestions, selected }: { suggestions: Suggestion[]; selected: number }): React.ReactElement {
-  // On narrow terminals (Termux), avoid side-by-side label+description that
-  // wraps and overlaps. Args (models) show the full id alone; commands keep a
-  // short description when it fits.
+  // Scroll the visible window with the highlight so ↑/↓ reveals models past the
+  // first page (Termux soft-keys previously appeared to "do nothing").
+  const { visible, localSelected, hasAbove, hasBelow, start } = paletteWindow(suggestions, selected, 10);
+  const total = suggestions.length;
+
   return (
     <Box flexDirection="column" borderStyle="round" borderColor="gray" paddingX={1}>
-      {suggestions.slice(0, 10).map((s, i) => {
-        const active = i === selected;
+      {hasAbove ? (
+        <Text color="gray">  ↑ {start} more · ↑/↓ scroll · PgUp/PgDn</Text>
+      ) : null}
+      {visible.map((s, i) => {
+        const active = i === localSelected;
         const prefix = active ? '❯ ' : '  ';
         if (s.kind === 'arg') {
-          // Full model/provider id on one line; optional short tag after.
           const tag = s.description ? `  ${s.description}` : '';
           return (
-            <Box key={`${s.kind}:${s.value}`}>
+            <Box key={`${s.kind}:${s.value}:${start + i}`}>
               <Text color={active ? 'cyan' : undefined} bold={active}>
                 {prefix}
                 {s.label}
@@ -602,7 +616,7 @@ function Palette({ suggestions, selected }: { suggestions: Suggestion[]; selecte
           );
         }
         return (
-          <Box key={`${s.kind}:${s.value}`}>
+          <Box key={`${s.kind}:${s.value}:${start + i}`}>
             <Text color={active ? 'cyan' : undefined} bold={active}>
               {prefix}
               {s.label}
@@ -611,6 +625,17 @@ function Palette({ suggestions, selected }: { suggestions: Suggestion[]; selecte
           </Box>
         );
       })}
+      {hasBelow ? (
+        <Text color="gray">
+          {' '}
+          ↓ {total - start - visible.length} more · {localSelected + start + 1}/{total}
+        </Text>
+      ) : total > visible.length ? (
+        <Text color="gray">
+          {' '}
+          {localSelected + start + 1}/{total}
+        </Text>
+      ) : null}
     </Box>
   );
 }

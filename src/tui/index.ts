@@ -17,6 +17,7 @@ export {
   MODELS_BY_PROVIDER,
   modelsForProvider,
   modelTag,
+  paletteWindow,
   type Suggestion,
   type SlashCommand,
   type ParsedInput,
