@@ -186,10 +186,16 @@ sky forge token work --token …
 
 The dashboard mirrors a Cursor-style **Integrations** page: **Source Control**
 rows for GitHub / Gitea (Connect · Manage) plus **LLM Providers**. Forge tokens
-live in `~/.sky/secrets.json` as `forge:<id>`. When the agent runs
-`git push` / `pull` / `fetch`, Sky matches the remote host to a forge and uses
-HTTPS token auth **without rewriting** your remotes. Self-hosted Gitea is
-supported the same way as GitHub.
+live in `~/.sky/secrets.json` as `forge:<id>`. Connecting GitHub/Gitea enables:
+
+1. **Git HTTPS auth** — `git push` / `pull` / `fetch` match the remote host and
+   use the stored PAT without rewriting remotes.
+2. **`forge` agent tool** — list your repos, check identity (`whoami`), or look
+   up `owner/repo` via the forge REST API (ask: “list my GitHub repos”).
+
+Self-hosted Gitea is supported the same way as GitHub. If you see a transient
+`Upstream request failed` from a free OpenCode model, retry or switch model —
+that is the LLM provider, not forge auth.
 
 ```bash
 sky -p anthropic -m claude-3-5-sonnet "…"
