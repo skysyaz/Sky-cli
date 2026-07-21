@@ -81,7 +81,7 @@ export const SLASH_COMMANDS: SlashCommand[] = [
   { name: 'provider', description: 'Switch LLM provider', args: PROVIDER_NAMES },
   { name: 'key', description: 'Set API key for current provider (saved to secrets file)' },
   { name: 'status', description: 'Show session, provider, tools, skills, MCP status' },
-  { name: 'cost', description: 'Show token and estimated cost usage' },
+  { name: 'cost', description: 'Show usage, or toggle status-bar cost (on|off)', args: ['on', 'off', 'toggle'] },
   { name: 'diff', description: 'Show uncommitted changes this session' },
   { name: 'compact', description: 'Summarize old turns to reclaim context' },
   {

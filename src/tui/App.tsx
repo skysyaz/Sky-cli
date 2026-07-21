@@ -67,6 +67,8 @@ export function App(props: AppProps): React.ReactElement {
   const [mode, setMode] = useState<Mode>(session.mode);
   const [model, setModel] = useState(session.model);
   const [tokenUsed, setTokenUsed] = useState(session.tokenUsage.input + session.tokenUsage.output);
+  const [costUsd, setCostUsd] = useState(session.tokenUsage.estimatedCostUsd);
+  const [showCost, setShowCost] = useState(Boolean(config.tui.theme.layout.showCost));
   const [filesEdited, setFilesEdited] = useState(0);
   const [approval, setApproval] = useState<{ request: ApprovalPromptRequest; resolve: (a: ApprovalAnswer) => void } | null>(null);
 
@@ -172,6 +174,7 @@ export function App(props: AppProps): React.ReactElement {
             break;
           case 'usage':
             setTokenUsed(session.tokenUsage.input + session.tokenUsage.output);
+            setCostUsd(session.tokenUsage.estimatedCostUsd);
             break;
           case 'turn-end':
             if (streamed.trim()) pushLog('assistant', streamed.trim());
@@ -207,6 +210,7 @@ export function App(props: AppProps): React.ReactElement {
             '  /provider <name>   switch LLM provider (openai, anthropic, gemini, …)',
             '  /key <api-key>     save key to ~/.sky/secrets.json (mode 0600) and reload',
             '  /key clear         remove the stored key for the current provider',
+            '  /cost [on|off]     show usage; on/off keeps ~$cost in the status bar',
             '  /plugin marketplace add <owner/repo> · install <name@market> · search <q>',
             'Keys: type / for palette · ↑/↓ · Tab/Enter · Esc clears · Enter submits',
             '      Ctrl+C cancels a running turn · Ctrl+C on empty input or Ctrl+D quits',
@@ -322,12 +326,40 @@ export function App(props: AppProps): React.ReactElement {
         );
         break;
       }
-      case 'cost':
+      case 'cost': {
+        const usageLine = `Tokens: ${session.tokenUsage.input} in / ${session.tokenUsage.output} out · ~$${session.tokenUsage.estimatedCostUsd.toFixed(4)}`;
+        const flag = (arg ?? '').trim().toLowerCase();
+        if (!flag) {
+          pushLog(
+            'system',
+            `${usageLine}\nStatus-bar cost: ${showCost ? 'ON' : 'OFF'} — /cost on | /cost off | /cost toggle`,
+          );
+          break;
+        }
+        let next = showCost;
+        if (flag === 'on' || flag === 'show' || flag === 'always') next = true;
+        else if (flag === 'off' || flag === 'hide') next = false;
+        else if (flag === 'toggle') next = !showCost;
+        else {
+          pushLog('system', `${usageLine}\nUsage: /cost [on|off|toggle]`);
+          break;
+        }
+        setShowCost(next);
+        setCostUsd(session.tokenUsage.estimatedCostUsd);
+        config.tui.theme.layout.showCost = next;
+        try {
+          writeConfig(config);
+        } catch (error) {
+          pushLog('error', `Could not persist cost preference: ${(error as Error).message}`);
+        }
         pushLog(
           'system',
-          `Tokens: ${session.tokenUsage.input} in / ${session.tokenUsage.output} out · ~$${session.tokenUsage.estimatedCostUsd.toFixed(4)}`,
+          next
+            ? `${usageLine}\nStatus-bar cost: ON (always visible). /cost off to hide.`
+            : `${usageLine}\nStatus-bar cost: OFF. /cost on to show always.`,
         );
         break;
+      }
       case 'diff':
         pushLog('system', `${filesEdited} file(s) edited this session. Run \`git diff\` to review.`);
         break;
@@ -555,6 +587,9 @@ export function App(props: AppProps): React.ReactElement {
         pct={pct}
         files={filesEdited}
         sessionId={session.id}
+        showCost={showCost}
+        costUsd={costUsd}
+        showTokenBar={config.tui.theme.layout.showTokenBar !== false}
       />
     </Box>
   );
@@ -663,6 +698,9 @@ function StatusBar({
   pct,
   files,
   sessionId,
+  showCost,
+  costUsd,
+  showTokenBar,
 }: {
   mode: Mode;
   provider: string;
@@ -670,15 +708,30 @@ function StatusBar({
   pct: string;
   files: number;
   sessionId: string;
+  showCost: boolean;
+  costUsd: number;
+  showTokenBar: boolean;
 }): React.ReactElement {
   const pctColor = Number(pct) >= 95 ? 'red' : Number(pct) >= 90 ? 'yellow' : 'green';
+  const costLabel = `~$${costUsd.toFixed(4)}`;
   return (
     <Box>
       <Text color={MODE_COLOR[mode]}>
         {GLYPH} {mode}
       </Text>
-      <Text color="gray"> · {provider}:{model} · </Text>
-      <Text color={pctColor}>{pct}%</Text>
+      <Text color="gray"> · {provider}:{model}</Text>
+      {showTokenBar ? (
+        <>
+          <Text color="gray"> · </Text>
+          <Text color={pctColor}>{pct}%</Text>
+        </>
+      ) : null}
+      {showCost ? (
+        <>
+          <Text color="gray"> · </Text>
+          <Text color="yellow">{costLabel}</Text>
+        </>
+      ) : null}
       <Text color="gray"> · {files} files · {sessionId.slice(0, 5)}</Text>
     </Box>
   );

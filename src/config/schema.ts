@@ -113,6 +113,8 @@ const tuiSchema = z
           .object({
             submitOnEnter: z.boolean().default(true),
             showTokenBar: z.boolean().default(true),
+            /** When true, estimated session cost is always shown in the status bar. */
+            showCost: z.boolean().default(false),
             compactMode: z.boolean().default(false),
           })
           .default({}),
