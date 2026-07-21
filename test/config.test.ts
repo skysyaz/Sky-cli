@@ -19,7 +19,7 @@ describe('config precedence (§7.6)', () => {
     const config = defaultConfig();
     expect(config.defaultProvider).toBe('openai');
     expect(config.tui.theme.colors.accent).toBe('cyan');
-    expect(config.tools.read.deny).toContain('.env*');
+    expect(config.tools.read.deny).toContain('**/.env*');
     expect(config.forge.remotes).toEqual({});
   });
 

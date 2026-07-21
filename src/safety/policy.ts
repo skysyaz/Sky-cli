@@ -159,6 +159,9 @@ export class Policy {
     const path = String(input.path ?? '');
     const dir = path.includes('/') ? path.slice(0, path.lastIndexOf('/')) : '.';
     const ext = path.includes('.') ? `*.${path.split('.').pop()}` : '*';
-    return { tool, pattern: `${dir}/**/${ext}` };
+    // A cwd-root file has no directory prefix; `./**/*.ext` would never match it
+    // (the `./` is stripped during normalization), so the "always" choice would
+    // silently fail to auto-approve later calls. Use a recursive glob instead.
+    return { tool, pattern: dir === '.' ? `**/${ext}` : `${dir}/**/${ext}` };
   }
 }
