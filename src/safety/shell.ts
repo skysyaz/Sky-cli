@@ -53,6 +53,12 @@ const TIER2 = [
   /^ping\b/,
 ];
 
+/** Absolute or bare shell interpreter after a pipe / list separator. */
+const PIPE_TO_SHELL =
+  /(?:\||;)\s*(?:sudo\s+)?(?:\/(?:usr\/)?(?:local\/)?bin\/)?(?:ba)?sh\b/;
+const PIPE_TO_ZSH =
+  /\|\s*(?:sudo\s+)?(?:\/(?:usr\/)?(?:local\/)?bin\/)?zsh\b/;
+
 /** Tier-4: mutating, irreversible or destructive. Always prompt; some denied. */
 const TIER4 = [
   /\brm\s+-[a-z]*r[a-z]*f/,
@@ -68,8 +74,8 @@ const TIER4 = [
   /\b:\(\)\s*\{/,
   /\bchmod\s+-R\b/,
   /\bchown\s+-R\b/,
-  /\|\s*(ba)?sh\b/,
-  /\|\s*zsh\b/,
+  PIPE_TO_SHELL,
+  PIPE_TO_ZSH,
 ];
 
 /** Tokenize a shell command roughly (enough for denylist checks). */
@@ -99,8 +105,8 @@ export function isHardDeniedShellCommand(command: string): boolean {
   // Fork bomb
   if (/:\(\)\s*\{\s*:\|:&\s*\}\s*;?\s*:/.test(cmd)) return true;
 
-  // Pipe / redirect into a shell interpreter (curl|sh, wget|bash, …)
-  if (/(?:\||;)\s*(?:sudo\s+)?(?:ba)?sh\b/.test(cmd) || /\|\s*(?:sudo\s+)?zsh\b/.test(cmd)) {
+  // Pipe / redirect into a shell interpreter (curl|sh, wget|/bin/bash, …)
+  if (PIPE_TO_SHELL.test(cmd) || PIPE_TO_ZSH.test(cmd)) {
     return true;
   }
   // Explicit `bash -c "$(curl …)"` / `sh -c` wrapping a download is tier-4, not hard-deny,

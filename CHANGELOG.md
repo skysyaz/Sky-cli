@@ -31,8 +31,20 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Changed
 - In-cwd `read` is auto-approved by default (secret denylist still wins).
 - `/compact` actually trims session history; auto-compact uses **current** history size (not lifetime tokens) and preserves recent tool results to avoid explore→forget loops.
+- Provider fallback (`providers.*.fallback`) rebuilds the provider adapter (not just the model name).
 - Provider fallback (`providers.*.fallback`) is consulted after repeated stream failures.
 - Version bumped to **1.1.0**.
+
+### Fixed
+- Session allowlist "always" for cwd-root files (e.g. `README.md`).
+- Secret read denylist now covers subdirectories (`**/.env*`, etc.).
+- Edit tool reports replaced occurrence count accurately.
+- Pipe-to-shell hard deny covers `| /bin/sh` and `| /usr/bin/bash`.
+- Cost estimates cover palette models (Claude 4.5, GPT-4.1, Gemini, DeepSeek, Groq).
+- Dashboard forge writes no longer persist project `.skyrc` into global config; `DELETE /api/forge/default` clears the default pointer.
+- Empty Enter on approval prompts denies (safer default).
+- Skill frontmatter closing fence requires a line of exactly `---`.
+- Git `log` ignores non-numeric `-n` args.
 
 ## [1.0.0] - 2026-07-12
 

@@ -64,7 +64,11 @@ const toolsSchema = z
         // Empty by default — in-cwd reads are auto-safe via the tool predicate;
         // denylist for secrets still wins.
         autoApprove: z.array(z.string()).default([]),
-        deny: z.array(z.string()).default(['.env*', 'credentials*', '*.pem', '*.key', '**/id_rsa*', '**/id_ed25519*']),
+        // Use `**/`-prefixed globs so secrets are denied in subdirectories too,
+        // not only at the cwd root (`**/` also matches root-level paths).
+        deny: z
+          .array(z.string())
+          .default(['**/.env*', '**/credentials*', '**/*.pem', '**/*.key', '**/id_rsa*', '**/id_ed25519*']),
       })
       .default({}),
     write: z

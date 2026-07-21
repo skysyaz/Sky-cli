@@ -201,8 +201,14 @@ export class SessionStore {
     const raw = readFileSync(this.indexPath, 'utf8');
     const out: SessionIndexEntry[] = [];
     const lines = raw.split('\n');
+    // Tolerate only the last non-empty line as a partial append — do not assume
+    // a trailing newline (split('\n') otherwise mis-labels the final entry).
+    let lastNonEmpty = -1;
     for (let i = 0; i < lines.length; i++) {
-      const line = lines[i].trim();
+      if (lines[i]!.trim()) lastNonEmpty = i;
+    }
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i]!.trim();
       if (!line) continue;
       try {
         const parsed = sessionIndexEntrySchema.parse(JSON.parse(line));
@@ -210,7 +216,7 @@ export class SessionStore {
       } catch {
         // A corrupt trailing line is tolerated (partial append, §7.4); a corrupt
         // interior line signals a broken index → force a rebuild.
-        if (i < lines.length - 2) return undefined;
+        if (i !== lastNonEmpty) return undefined;
       }
     }
     return out;

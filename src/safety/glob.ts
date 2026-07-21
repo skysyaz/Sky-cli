@@ -32,7 +32,8 @@ export function globToRegExp(glob: string): RegExp {
 /** Match a filesystem path against a glob. */
 export function matchGlob(path: string, glob: string): boolean {
   const normalized = path.replace(/^\.\//, '');
-  return globToRegExp(glob).test(normalized) || globToRegExp(glob).test(path);
+  const re = globToRegExp(glob);
+  return re.test(normalized) || (normalized !== path && re.test(path));
 }
 
 /** True if the path matches any glob in the list. */
@@ -47,7 +48,8 @@ export function matchAnyGlob(path: string, globs: string[]): boolean {
  * so `shutdown` blocks `sudo shutdown now`).
  */
 export function matchCommandPattern(command: string, pattern: string, anchored: boolean): boolean {
-  const escaped = pattern.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*');
+  // Escape regex metacharacters including `?` (literal), then map `*` → `.*`.
+  const escaped = pattern.replace(/[.+^${}()|[\]\\?]/g, '\\$&').replace(/\*/g, '.*');
   const re = anchored ? new RegExp(`^${escaped}`) : new RegExp(escaped);
   return re.test(command.trim());
 }

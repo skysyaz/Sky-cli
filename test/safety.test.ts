@@ -41,6 +41,10 @@ describe('glob & command matching', () => {
     expect(matchCommandPattern('npm test --watch', 'npm test*', true)).toBe(true);
     expect(matchCommandPattern('rm file', 'npm test*', true)).toBe(false);
   });
+  it('treats ? in command patterns as a literal', () => {
+    expect(matchCommandPattern('curl -I https://x?', 'curl -I https://x?', true)).toBe(true);
+    expect(matchCommandPattern('curl -I https://xy', 'curl -I https://x?', true)).toBe(false);
+  });
 });
 
 describe('Policy engine (§9.2)', () => {

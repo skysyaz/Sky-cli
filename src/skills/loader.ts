@@ -21,19 +21,19 @@ export function parseSkillMarkdown(raw: string, fallbackName: string, source: st
   let description = '';
   let body = raw.trim();
 
-  if (raw.startsWith('---')) {
-    const end = raw.indexOf('---', 3);
-    if (end !== -1) {
-      const front = raw.slice(3, end);
-      body = raw.slice(end + 3).trim();
-      for (const line of front.split('\n')) {
-        const m = line.match(/^(\w+)\s*:\s*(.*)$/);
-        if (!m) continue;
-        const key = m[1].toLowerCase();
-        const value = m[2].trim().replace(/^['"]|['"]$/g, '');
-        if (key === 'name' && value) name = value;
-        if (key === 'description' && value) description = value;
-      }
+  // Require a closing `---` on its own line so `----` / values with dashes
+  // don't truncate frontmatter early.
+  const fm = raw.match(/^---[ \t]*\r?\n([\s\S]*?)\r?\n---[ \t]*(?:\r?\n|$)/);
+  if (fm) {
+    const front = fm[1] ?? '';
+    body = raw.slice(fm[0].length).trim();
+    for (const line of front.split('\n')) {
+      const m = line.match(/^(\w+)\s*:\s*(.*)$/);
+      if (!m) continue;
+      const key = m[1]!.toLowerCase();
+      const value = m[2]!.trim().replace(/^['"]|['"]$/g, '');
+      if (key === 'name' && value) name = value;
+      if (key === 'description' && value) description = value;
     }
   }
 

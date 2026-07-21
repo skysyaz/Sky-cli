@@ -44,6 +44,11 @@ export interface LoadConfigOptions {
   path?: string;
   /** Working directory used to locate a `.skyrc` project override. */
   cwd?: string;
+  /**
+   * Skip merging cwd `.skyrc`. Use when writing global config so project
+   * overrides are not persisted into `~/.sky/config.json`.
+   */
+  skipProject?: boolean;
   /** Environment used for `SKY_*` overrides (injectable for tests). */
   env?: NodeJS.ProcessEnv;
   /** Highest-precedence CLI overrides. */
@@ -139,9 +144,11 @@ export function loadConfig(options: LoadConfigOptions = {}): SkyConfig {
   const fileConfig = readJsonIfExists(path);
   if (fileConfig) merged = deepMerge(merged, fileConfig);
 
-  // 3. .skyrc in cwd (per-project override)
-  const projectConfig = readJsonIfExists(join(cwd, '.skyrc'));
-  if (projectConfig) merged = deepMerge(merged, projectConfig);
+  // 3. .skyrc in cwd (per-project override) — skipped when writing global config
+  if (!options.skipProject) {
+    const projectConfig = readJsonIfExists(join(cwd, '.skyrc'));
+    if (projectConfig) merged = deepMerge(merged, projectConfig);
+  }
 
   // 4. SKY_* environment variables
   merged = deepMerge(merged, envOverrides(env));

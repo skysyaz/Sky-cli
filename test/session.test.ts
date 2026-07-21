@@ -70,6 +70,20 @@ describe('SessionStore', () => {
     expect(rebuilt.map((e) => e.id)).toContain(s.id);
   });
 
+  it('rebuilds when an interior index line is corrupt (no trailing newline)', () => {
+    const a = store.create({ mode: 'agent', cwd: '/a', provider: 'mock', model: 'm' });
+    const b = store.create({ mode: 'agent', cwd: '/a', provider: 'mock', model: 'm' });
+    // No trailing \n — old guard used length-2 and wrongly kept a corrupt interior line.
+    writeFileSync(
+      join(dir, 'sessions.index'),
+      `${JSON.stringify({ id: a.id, cwd: '/a', started: a.started, lastActivity: a.lastActivity, mode: 'agent', messages: 0 })}\n` +
+        `{not-json}\n` +
+        `${JSON.stringify({ id: b.id, cwd: '/a', started: b.started, lastActivity: b.lastActivity, mode: 'agent', messages: 0 })}`,
+    );
+    const listed = store.list({ cwd: '/a' });
+    expect(listed.map((e) => e.id).sort()).toEqual([a.id, b.id].sort());
+  });
+
   it('excludes archived sessions from the default list', () => {
     const s = store.create({ mode: 'agent', cwd: '/a', provider: 'mock', model: 'm' });
     store.setStatus(s, 'archived');
