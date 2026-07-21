@@ -14,6 +14,7 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **`/status`** slash command — session, tools, plugins, skills, MCP overview in the TUI.
 - **Secure `/key`** — writes to `~/.sky/secrets.json` (mode `0600`) instead of plaintext `config.json`.
 - Ask/plan modes now get **read + search** tools for codebase Q&A and planning.
+- **docs/USAGE.md** — end-to-end how-to guide (setup, TUI, providers, MCP, skills, CI, troubleshooting).
 
 ### Fixed
 - **`edit` sandbox** — refused writes outside cwd (same as `write`).
