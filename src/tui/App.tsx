@@ -1042,6 +1042,22 @@ export function App(props: AppProps): React.ReactElement {
         } else {
           ensureProvider();
         }
+        // Stale OpenCode keys break free models on some networks — clear guest path.
+        if (providerName === 'opencode' || config.defaultProvider === 'opencode') {
+          try {
+            const { readSecret } = await import('../config/secrets.js');
+            if (readSecret('opencode')) {
+              clearSecret('opencode');
+              pushLog(
+                'system',
+                'Cleared stored OpenCode key so free models can use guest auth. For a personal Zen key: https://opencode.ai/auth then /keys set opencode <key>',
+              );
+              ensureProvider();
+            }
+          } catch {
+            /* ignore */
+          }
+        }
       }
 
       if (props.initialPrompt) {
@@ -1131,9 +1147,10 @@ function Palette({ suggestions, selected }: { suggestions: Suggestion[]; selecte
   // first page (Termux soft-keys previously appeared to "do nothing").
   const { visible, localSelected, hasAbove, hasBelow, start } = paletteWindow(suggestions, selected, 10);
   const total = suggestions.length;
+  const fancy = supportsLiveStreamRewrite();
 
-  return (
-    <Box flexDirection="column" borderStyle="round" borderColor="gray" paddingX={1}>
+  const body = (
+    <>
       {hasAbove ? (
         <Text color="gray">  ↑ {start} more · ↑/↓ scroll · PgUp/PgDn</Text>
       ) : null}
@@ -1173,6 +1190,16 @@ function Palette({ suggestions, selected }: { suggestions: Suggestion[]; selecte
           {localSelected + start + 1}/{total}
         </Text>
       ) : null}
+    </>
+  );
+
+  // Round borders leave permanent ghost boxes on Termux scrollback.
+  if (!fancy) {
+    return <Box flexDirection="column">{body}</Box>;
+  }
+  return (
+    <Box flexDirection="column" borderStyle="round" borderColor="gray" paddingX={1}>
+      {body}
     </Box>
   );
 }
@@ -1184,11 +1211,20 @@ function InputBox({ value, mode }: { value: string; mode: Mode }): React.ReactEl
       : mode === 'plan'
         ? 'Describe what to plan — or type / for commands'
         : 'Ask, build, or type / for commands';
-  return (
-    <Box borderStyle="round" borderColor={MODE_COLOR[mode]} paddingX={1}>
+  const line = (
+    <>
       <Text color={MODE_COLOR[mode]}>› </Text>
       {value ? <Text>{value}</Text> : <Text color="gray">{placeholder}</Text>}
       <Text color="gray">█</Text>
+    </>
+  );
+  // Termux cannot rewrite bordered boxes — each re-render leaves empty cyan frames.
+  if (!supportsLiveStreamRewrite()) {
+    return <Text>{line}</Text>;
+  }
+  return (
+    <Box borderStyle="round" borderColor={MODE_COLOR[mode]} paddingX={1}>
+      {line}
     </Box>
   );
 }

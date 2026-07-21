@@ -1,6 +1,7 @@
 import { ErrorCode, SkyError } from '../errors/index.js';
 import { nullLogger, type Logger } from '../logging/index.js';
 import { resolveApiKey, type SkyConfig } from '../config/index.js';
+import { isOpenCodeFreeModel } from '../config/secrets.js';
 import type { Provider } from './types.js';
 import { OpenAiAdapter } from './openai.js';
 import { AnthropicAdapter } from './anthropic.js';
@@ -89,21 +90,22 @@ export function createProvider(options: CreateProviderOptions): Provider {
         name: 'openrouter',
       });
 
-    case 'opencode':
-      // OpenCode Zen gateway. Free models always use the public guest token so a
-      // stale OPENCODE_API_KEY cannot cause SKY-E-5011. Paid models use /key.
-      // Free models stream long reasoning_content and stall on huge max_tokens /
-      // include_usage — keep budgets modest and skip usage streaming.
+    case 'opencode': {
+      // OpenCode Zen gateway. Free models use guest auth with 401 retry
+      // (Bearer public → no Authorization). Paid models use OPENCODE_API_KEY.
+      const resolvedModel = model ?? 'deepseek-v4-flash-free';
+      const apiKey = resolveApiKey('opencode', providerConfig, logger, env, { model: resolvedModel });
+      const guest = apiKey === 'public' || isOpenCodeFreeModel(resolvedModel);
       return new OpenAiAdapter({
-        apiKey: resolveApiKey('opencode', providerConfig, logger, env, {
-          model: model ?? 'deepseek-v4-flash-free',
-        }),
+        apiKey,
         baseUrl: providerConfig?.baseUrl ?? OPENCODE_BASE_URL,
         defaultHeaders: { 'HTTP-Referer': 'https://github.com/skysyaz/Sky-cli', 'X-Title': 'Sky CLI' },
         name: 'opencode',
         includeUsage: false,
         maxOutputCap: 4_096,
+        opencodeGuest: guest,
       });
+    }
 
     case 'gemini':
       return new OpenAiAdapter({

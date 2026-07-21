@@ -9,6 +9,7 @@ import type {
 } from './types.js';
 import { heuristicCountTokens } from './tokens.js';
 import { providerErrorFromStatus } from './errors.js';
+import { clearSecret, isOpenCodeFreeModel } from '../config/secrets.js';
 
 export interface OpenAiAdapterOptions {
   apiKey: string;
@@ -21,9 +22,16 @@ export interface OpenAiAdapterOptions {
   limits?: Record<string, TokenLimits>;
   /** Cap max_tokens for gateways that stall / interrupt on huge budgets. */
   maxOutputCap?: number;
+  /**
+   * OpenCode Zen free-model guest auth. On 401, retry with alternate
+   * Authorization strategies (some mobile networks reject `Bearer public`).
+   */
+  opencodeGuest?: boolean;
 }
 
 const DEFAULT_LIMITS: TokenLimits = { contextWindow: 128_000, maxOutput: 16_384 };
+
+type GuestAuthMode = 'bearer-public' | 'no-auth';
 
 /**
  * The OpenAI adapter (§8.3). Also backs the Ollama and OpenRouter adapters via
@@ -33,11 +41,16 @@ const DEFAULT_LIMITS: TokenLimits = { contextWindow: 128_000, maxOutput: 16_384 
 export class OpenAiAdapter implements Provider {
   readonly name: string;
   private client: unknown;
+  private guestAuthMode: GuestAuthMode = 'bearer-public';
   private readonly options: OpenAiAdapterOptions;
 
   constructor(options: OpenAiAdapterOptions) {
     this.options = options;
     this.name = options.name ?? 'openai';
+  }
+
+  private resetClient(): void {
+    this.client = undefined;
   }
 
   private async getClient(): Promise<any> {
@@ -52,12 +65,27 @@ export class OpenAiAdapter implements Provider {
         cause,
       );
     }
+
+    const guest = Boolean(this.options.opencodeGuest);
+    const authMode = this.guestAuthMode;
     this.client = new OpenAI({
-      apiKey: this.options.apiKey || 'not-needed',
+      apiKey: guest ? 'public' : this.options.apiKey || 'not-needed',
       baseURL: this.options.baseUrl,
       defaultHeaders: this.options.defaultHeaders,
-      // Mobile / flaky networks (Termux) benefit from a longer idle timeout.
       timeout: 120_000,
+      ...(guest
+        ? {
+            fetch: async (url: Parameters<typeof fetch>[0], init?: RequestInit) => {
+              const headers = new Headers(init?.headers);
+              if (authMode === 'no-auth') {
+                headers.delete('Authorization');
+              } else {
+                headers.set('Authorization', 'Bearer public');
+              }
+              return fetch(url, { ...init, headers });
+            },
+          }
+        : {}),
     });
     return this.client;
   }
@@ -91,6 +119,54 @@ export class OpenAiAdapter implements Provider {
   }
 
   async *stream(request: StreamRequest): AsyncIterable<StreamChunk> {
+    const guest = Boolean(this.options.opencodeGuest) || (this.name === 'opencode' && isOpenCodeFreeModel(request.model));
+    const modes: GuestAuthMode[] = guest ? ['bearer-public', 'no-auth'] : ['bearer-public'];
+
+    let lastError: unknown;
+    for (let i = 0; i < modes.length; i++) {
+      const mode = modes[i]!;
+      if (guest) {
+        this.guestAuthMode = mode;
+        this.resetClient();
+      }
+      try {
+        yield* this.streamOnce(request, { guest });
+        return;
+      } catch (error) {
+        lastError = error;
+        const status = (error as { status?: number }).status ?? (SkyError.is(error) && error.code === ErrorCode.ProviderAuthFailed ? 401 : undefined);
+        const is401 =
+          status === 401 || (SkyError.is(error) && error.code === ErrorCode.ProviderAuthFailed);
+        if (!guest || !is401 || i === modes.length - 1) {
+          if (guest && is401) {
+            try {
+              clearSecret('opencode');
+            } catch {
+              /* ignore */
+            }
+            throw new SkyError(
+              ErrorCode.ProviderAuthFailed,
+              {
+                detail:
+                  ' — OpenCode guest auth failed on this network. Get a free Zen key at https://opencode.ai/auth then run `/keys set opencode <key>` (or `sky keys set opencode <key>`).',
+              },
+              error,
+            );
+          }
+          throw SkyError.is(error)
+            ? error
+            : providerErrorFromStatus(status, (error as Error).message, error);
+        }
+        // try next guest auth mode
+      }
+    }
+    throw SkyError.from(lastError);
+  }
+
+  private async *streamOnce(
+    request: StreamRequest,
+    opts: { guest: boolean },
+  ): AsyncGenerator<StreamChunk> {
     const client = await this.getClient();
     const cap = this.options.maxOutputCap;
     const maxTokens =
@@ -100,12 +176,11 @@ export class OpenAiAdapter implements Provider {
 
     let stream: AsyncIterable<any>;
     try {
-      // Stable system-first message order enables OpenAI automatic prompt caching
-      // on repeated prefixes; pass through optional cache hint headers.
-      const headers = {
-        ...(request.signal ? {} : {}),
-        'X-Sky-Prompt-Cache': 'ephemeral',
-      };
+      const extraHeaders: Record<string, string> = {};
+      // Skip custom cache header on OpenCode — some mobile WAFs are picky.
+      if (!opts.guest && this.name !== 'opencode') {
+        extraHeaders['X-Sky-Prompt-Cache'] = 'ephemeral';
+      }
       stream = await client.chat.completions.create(
         {
           model: request.model,
@@ -118,14 +193,13 @@ export class OpenAiAdapter implements Provider {
         },
         {
           ...(request.signal ? { signal: request.signal } : {}),
-          headers,
+          ...(Object.keys(extraHeaders).length ? { headers: extraHeaders } : {}),
         },
       );
     } catch (error) {
       throw providerErrorFromStatus((error as { status?: number }).status, (error as Error).message, error);
     }
 
-    // Accumulate streamed tool-call fragments keyed by index.
     const toolAcc = new Map<number, { id: string; name: string; args: string }>();
     let usage = { inputTokens: 0, outputTokens: 0 };
     let finish: 'stop' | 'tool_calls' | 'length' = 'stop';
@@ -136,14 +210,12 @@ export class OpenAiAdapter implements Provider {
         if (request.signal?.aborted) throw new SkyError(ErrorCode.AgentAborted, {});
         const choice = part.choices?.[0];
         const delta = choice?.delta;
-        // Some gateways (OpenCode Zen free models) stream `content: null` while
-        // emitting `reasoning_content`. Only yield real string content.
         const text =
           typeof delta?.content === 'string'
             ? delta.content
             : typeof (delta as { reasoning_content?: unknown } | undefined)?.reasoning_content === 'string' &&
                 !delta?.content
-              ? '' // ignore reasoning tokens for the user-visible stream
+              ? ''
               : undefined;
         if (text) {
           emittedText = true;
@@ -168,9 +240,6 @@ export class OpenAiAdapter implements Provider {
       }
     } catch (error) {
       if (SkyError.is(error)) throw error;
-      // Mobile / flaky networks often drop Mid-stream after partial text
-      // (especially OpenCode free models that reason for a long time). Prefer
-      // returning what we have over a hard SKY-E-5020 when content already landed.
       if (emittedText || toolAcc.size > 0) {
         for (const acc of toolAcc.values()) {
           let input: Record<string, unknown> = {};
@@ -205,7 +274,6 @@ export class OpenAiAdapter implements Provider {
   }
 
   countTokens(messages: LlmMessage[]): number {
-    // A real build swaps in tiktoken (cl100k); the heuristic is a safe default.
     return heuristicCountTokens(messages);
   }
 
