@@ -10,4 +10,5 @@ export { editTool } from './edit.js';
 export { searchTool } from './search.js';
 export { shellTool } from './shell.js';
 export { gitTool } from './git.js';
+export { forgeTool } from './forge.js';
 export { resolveInCwd, isInsideCwd } from './paths.js';

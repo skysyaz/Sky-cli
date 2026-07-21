@@ -106,8 +106,17 @@ export function compactSessionMessages(messages: Message[], options: CompactOpti
     return { messages: stubbed, dropped: 0, reason };
   }
 
-  const recent = nonSystem.slice(-keepRecent);
+  let start = Math.max(0, nonSystem.length - keepRecent);
+  while (start > 0 && nonSystem[start]?.role === 'tool') start--;
+  let recent = nonSystem.slice(start);
+  while (recent.length > 0 && recent[0]?.role === 'tool') recent = recent.slice(1);
+
   const dropped = nonSystem.length - recent.length;
+  if (dropped <= 0) {
+    const stubbed = maybeStubTools(messages, Boolean(options.stubToolResults), stubMaxChars);
+    return { messages: stubbed, dropped: 0, reason };
+  }
+
   const keptRecent = maybeStubTools(recent, Boolean(options.stubToolResults), stubMaxChars);
   const summary: Message = {
     role: 'user',
@@ -119,6 +128,28 @@ export function compactSessionMessages(messages: Message[], options: CompactOpti
     dropped,
     reason,
   };
+}
+
+/**
+ * Drop orphan tool messages (no preceding assistant tool_calls) that break
+ * some providers after aggressive compaction.
+ */
+export function sanitizeToolTurns(messages: Message[]): Message[] {
+  const toolCallIds = new Set<string>();
+  const out: Message[] = [];
+  for (const m of messages) {
+    if (m.role === 'assistant' && m.toolCalls?.length) {
+      for (const c of m.toolCalls) toolCallIds.add(c.id);
+      out.push(m);
+      continue;
+    }
+    if (m.role === 'tool') {
+      if (m.toolCallId && toolCallIds.has(m.toolCallId)) out.push(m);
+      continue;
+    }
+    out.push(m);
+  }
+  return out;
 }
 
 /** Progressively more aggressive keep counts for overflow retries. */

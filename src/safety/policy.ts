@@ -110,6 +110,11 @@ export class Policy {
       return { decision: 'prompt', reason: `git ${action} requires approval` };
     }
 
+    if (tool === 'forge') {
+      // Read-only REST browse of configured GitHub/Gitea — auto-approve.
+      return { decision: 'allow', reason: 'forge API read auto-approved' };
+    }
+
     if (tool === 'search') {
       const path = String(input.path ?? '');
       if (path.startsWith('/') || path.startsWith('..') || /^[A-Za-z]:[\\/]/.test(path)) {

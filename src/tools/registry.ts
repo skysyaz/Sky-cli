@@ -7,6 +7,7 @@ import { editTool } from './edit.js';
 import { searchTool } from './search.js';
 import { shellTool } from './shell.js';
 import { gitTool } from './git.js';
+import { forgeTool } from './forge.js';
 
 /**
  * The tool registry (§2.4.3). Discovers tools, validates their inputs against
@@ -79,7 +80,7 @@ export class ToolRegistry {
   }
 }
 
-/** The six built-in tools (§6). */
+/** The built-in tools (§6) plus forge API browse. */
 export function defaultTools(): Tool<any>[] {
-  return [readTool, writeTool, editTool, searchTool, shellTool, gitTool];
+  return [readTool, writeTool, editTool, searchTool, shellTool, gitTool, forgeTool];
 }
